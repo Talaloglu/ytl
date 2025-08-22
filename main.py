@@ -63,7 +63,7 @@ def stt_health():
     enable_env = os.getenv("ENABLE_STT", "1").strip() != "0"
     backend = os.getenv("STT_BACKEND", "openai").strip().lower()
     gem_model = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
-    has_google_key = bool(os.getenv("GOOGLE_API_KEY"))
+    has_google_key = bool(os.getenv("AIzaSyCDeR6ILnzvMzJTEarTblMoq4yCscxBvvA"))
     # Tooling
     tools = {
         "yt_dlp": _has_cmd("yt-dlp"),
