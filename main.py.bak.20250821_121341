@@ -1,0 +1,227 @@
+import logging
+import time
+from typing import Callable, Optional
+
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
+from youtube_transcript_api import YouTubeTranscriptApi, TranscriptsDisabled, NoTranscriptFound
+
+# ---------------------------------------
+# Logging
+# ---------------------------------------
+logging.basicConfig(level=logging.DEBUG, format="%(asctime)s [%(levelname)s] %(message)s")
+log = logging.getLogger("yt-transcripts")
+
+# ---------------------------------------
+# FastAPI app
+# ---------------------------------------
+app = FastAPI(title="Transcript API", version="0.2.0")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],   # tighten for production
+    allow_methods=["GET"],
+    allow_headers=["*"],
+)
+
+# ---------------------------------------
+# Helpers
+# ---------------------------------------
+def supports_listing() -> bool:
+    """
+    Checks if the installed youtube-transcript-api exposes list_transcripts.
+    """
+    return hasattr(YouTubeTranscriptApi, "list_transcripts")
+
+
+def try_get_transcript_simple(video_id: str, preferred_langs: list[str]):
+    """
+    Fallback path for older versions without listing:
+    Tries get_transcript with several language lists.
+    """
+    # Try the full preferred list, then common English variants
+    candidates = [preferred_langs, ["en"], ["en-US"], ["en-GB"]]
+    for langs in candidates:
+        try:
+            data = YouTubeTranscriptApi.get_transcript(video_id, languages=langs)
+            return [{"text": s["text"], "start": s["start"], "duration": s["duration"]} for s in data]
+        except Exception as e:
+            log.debug(f"[simple] languages={langs} failed: {e}")
+    return None
+
+
+def fetch_with_retry(fetch_call: Callable[[], list], attempts: int = 3, base_delay: float = 0.8) -> Optional[list]:
+    """
+    Retries transcript_obj.fetch() to mitigate YouTube 429 / empty responses.
+    Retries on:
+      - HTTP 429 (Too Many Requests)
+      - Empty/invalid XML ('no element found' or empty data)
+    """
+    for i in range(attempts):
+        try:
+            data = fetch_call()
+            if not data:
+                raise ValueError("empty transcript data")
+            return data
+        except Exception as e:
+            msg = str(e).lower()
+            is_rate_limit = "429" in msg or "too many requests" in msg
+            is_empty_xml = "no element found" in msg or "empty transcript" in msg or "empty" in msg
+            if i < attempts - 1 and (is_rate_limit or is_empty_xml):
+                delay = base_delay * (2 ** i)
+                time.sleep(delay)
+                continue
+            raise
+
+
+# ---------------------------------------
+# Core fetch logic
+# ---------------------------------------
+def fetch_transcript_segments(video_id: str, lang: str = "en"):
+    """
+    Strategy (with throttling-safe retries):
+    1) Manual transcript in [lang, en, en-US, en-GB] (retry)
+    2) Translate manual to requested lang (retry) — SKIP if lang equals source
+    3) Generated transcript in [lang, en, en-US, en-GB] (retry)
+    4) If lang=auto → any (manual > generated) (retry)
+    5) Last resort → first fetchable (retry)
+    For environments without listing support, fall back to get_transcript.
+    """
+    preferred_langs = [lang, "en", "en-US", "en-GB"]
+    log.debug(f"[fetch] video_id={video_id} lang={lang} preferred={preferred_langs}")
+
+    if not supports_listing():
+        return try_get_transcript_simple(video_id, preferred_langs)
+
+    try:
+        list_obj = YouTubeTranscriptApi.list_transcripts(video_id)
+
+        # Debug summary
+        summary = []
+        for tr in list_obj:
+            summary.append({
+                "language": tr.language,
+                "language_code": tr.language_code,
+                "generated": tr.is_generated,
+                "translatable": tr.is_translatable
+            })
+        log.debug(f"[fetch] available_transcripts={summary}")
+
+        # 1) Manual transcript in preferred languages (retry)
+        for l in preferred_langs:
+            try:
+                tr = list_obj.find_manually_created_transcript([l])
+                log.debug(f"[fetch] selected manual transcript lang={l}")
+                data = fetch_with_retry(lambda: tr.fetch())
+                return [{"text": s["text"], "start": s["start"], "duration": s["duration"]} for s in data]
+            except Exception as e:
+                log.debug(f"[fetch] manual lang={l} not usable: {e}")
+
+        # 2) Translate manual transcript to requested lang (retry) — skip if same lang
+        for tr in list_obj:
+            try:
+                if tr.is_translatable:
+                    src_code = (tr.language_code or "").lower()
+                    tgt_code = (lang or "en").lower()
+                    if src_code == tgt_code:
+                        continue
+                    t = tr.translate(lang if lang else "en")
+                    log.debug(f"[fetch] translated transcript to lang={lang} from {tr.language_code}")
+                    data = fetch_with_retry(lambda: t.fetch())
+                    return [{"text": s["text"], "start": s["start"], "duration": s["duration"]} for s in data]
+            except Exception as e:
+                log.debug(f"[fetch] translate from {tr.language_code} failed: {e}")
+
+        # 3) Generated transcript in preferred languages (retry)
+        for l in preferred_langs:
+            try:
+                tr = list_obj.find_generated_transcript([l])
+                log.debug(f"[fetch] selected generated transcript lang={l}")
+                data = fetch_with_retry(lambda: tr.fetch())
+                return [{"text": s["text"], "start": s["start"], "duration": s["duration"]} for s in data]
+            except Exception as e:
+                log.debug(f"[fetch] generated lang={l} not usable: {e}")
+
+        # 4) AUTO mode: any available transcript (manual > generated) (retry)
+        if lang.lower() == "auto":
+            for tr in list_obj:
+                try:
+                    if not tr.is_generated:
+                        log.debug(f"[fetch] AUTO picked manual {tr.language_code}")
+                        data = fetch_with_retry(lambda: tr.fetch())
+                        return [{"text": s["text"], "start": s["start"], "duration": s["duration"]} for s in data]
+                except Exception as e:
+                    log.debug(f"[fetch] AUTO manual {tr.language_code} failed: {e}")
+            for tr in list_obj:
+                try:
+                    if tr.is_generated:
+                        log.debug(f"[fetch] AUTO picked generated {tr.language_code}")
+                        data = fetch_with_retry(lambda: tr.fetch())
+                        return [{"text": s["text"], "start": s["start"], "duration": s["duration"]} for s in data]
+                except Exception as e:
+                    log.debug(f"[fetch] AUTO generated {tr.language_code} failed: {e}")
+
+        # 5) Last resort: first fetchable transcript (any language) (retry)
+        for tr in list_obj:
+            try:
+                log.debug(f"[fetch] last-resort try {tr.language_code} (generated={tr.is_generated})")
+                data = fetch_with_retry(lambda: tr.fetch())
+                return [{"text": s["text"], "start": s["start"], "duration": s["duration"]} for s in data]
+            except Exception as e:
+                log.debug(f"[fetch] last-resort {tr.language_code} failed: {e}")
+
+    except (TranscriptsDisabled, NoTranscriptFound) as e:
+        log.debug(f"[fetch] no transcripts available: {e}")
+    except Exception as e:
+        log.exception(f"[fetch] unexpected error: {e}")
+
+    return None
+
+
+# ---------------------------------------
+# Routes
+# ---------------------------------------
+@app.get("/transcript")
+def transcript(request: Request, videoId: str, lang: str = "en"):
+    """
+    Returns a list of segments: [{text, start, duration}, ...]
+    """
+    log.info(f"GET /transcript videoId={videoId} lang={lang} client={request.client.host}")
+    data = fetch_transcript_segments(videoId, lang)
+    if not data:
+        raise HTTPException(
+            status_code=404,
+            detail="Transcript not available (no manual/generated captions found or restricted/throttled). "
+                   "Try again in a bit or use /transcript/languages to inspect."
+        )
+    return data
+
+
+@app.get("/transcript/languages")
+def transcript_languages(request: Request, videoId: str):
+    """
+    Lists available transcripts (language, code, generated, translatable).
+    """
+    log.info(f"GET /transcript/languages videoId={videoId} client={request.client.host}")
+    if not supports_listing():
+        return {"error": "Installed youtube-transcript-api does not support list_transcripts. "
+                         "Use /transcript?videoId=...&lang=en or upgrade the package."}
+    try:
+        list_obj = YouTubeTranscriptApi.list_transcripts(videoId)
+        langs = []
+        for tr in list_obj:
+            entry = {
+                "language": tr.language,
+                "language_code": tr.language_code,
+                "generated": tr.is_generated,
+                "translatable": tr.is_translatable
+            }
+            langs.append(entry)
+            log.debug(f"[langs] {entry}")
+        log.debug(f"[langs] total={len(langs)}")
+        return langs
+    except (TranscriptsDisabled, NoTranscriptFound) as e:
+        log.debug(f"[langs] none available: {e}")
+        return []
+    except Exception as e:
+        log.exception(f"[langs] unexpected error: {e}")
+        return {"error": str(e)}
