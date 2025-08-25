@@ -3,6 +3,7 @@ name: Sync Worker
 on:
   schedule:
     - cron: "*/5 * * * *" # every 5 minutes
+    - cron: "0 3 * * *"   # daily at 03:00 UTC for bulk refresh
   workflow_dispatch: {}
 
 jobs:
@@ -22,4 +23,25 @@ jobs:
           fi
           curl -sS -X GET "$WORKER_URL" \
             -H "x-admin-token: $SB_ADMIN_TOKEN" \
+            -w '\nHTTP %{http_code}\n'
+
+  bulk-refresh:
+    name: Daily Bulk Refresh
+    runs-on: ubuntu-latest
+    if: github.event.schedule == '0 3 * * *'
+    steps:
+      - name: Invoke bulk refresh endpoint
+        shell: bash
+        env:
+          BULK_URL: https://lgausczyvnnwvlqiiufc.functions.supabase.co/sync_movie_metadata/bulk
+          SB_ADMIN_TOKEN: ${{ secrets.SB_ADMIN_TOKEN }}
+        run: |
+          if [ -z "$SB_ADMIN_TOKEN" ]; then
+            echo "SB_ADMIN_TOKEN is not set. Please add it in GitHub -> Settings -> Secrets and variables -> Actions." >&2
+            exit 1
+          fi
+          curl -sS -X POST "$BULK_URL" \
+            -H "x-admin-token: $SB_ADMIN_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d '{"limit":200,"missingOnly":false}' \
             -w '\nHTTP %{http_code}\n'
