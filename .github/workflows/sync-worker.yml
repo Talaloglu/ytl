@@ -1,0 +1,25 @@
+name: Sync Worker
+
+on:
+  schedule:
+    - cron: "*/5 * * * *" # every 5 minutes
+  workflow_dispatch: {}
+
+jobs:
+  run-worker:
+    name: Call Supabase Worker
+    runs-on: ubuntu-latest
+    steps:
+      - name: Invoke Edge Function worker endpoint
+        shell: bash
+        env:
+          WORKER_URL: https://lgausczyvnnwvlqiiufc.functions.supabase.co/sync_movie_metadata?mode=worker
+          SB_ADMIN_TOKEN: ${{ secrets.SB_ADMIN_TOKEN }}
+        run: |
+          if [ -z "$SB_ADMIN_TOKEN" ]; then
+            echo "SB_ADMIN_TOKEN is not set. Please add it in GitHub -> Settings -> Secrets and variables -> Actions." >&2
+            exit 1
+          fi
+          curl -sS -X GET "$WORKER_URL" \
+            -H "x-admin-token: $SB_ADMIN_TOKEN" \
+            -w '\nHTTP %{http_code}\n'
