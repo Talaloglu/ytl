@@ -48,12 +48,12 @@ fun StreamingHomeScreen(
 ) {
     // Observe state variables from StreamingViewModel
     val streamingMovies by viewModel.streamingMovies.collectAsState()
-    val isLoading by viewModel.isLoading.collectAsState()
     val hasMorePages by viewModel.hasMorePages.collectAsState()
-    val errorMessage by viewModel.errorMessage.collectAsState()
+    val uiState by viewModel.streamingState.collectAsState()
     val searchResults by viewModel.searchResults.collectAsState()
     val isSearching by viewModel.isSearching.collectAsState()
     val searchError by viewModel.searchError.collectAsState()
+    val searchUiState by viewModel.searchState.collectAsState()
     
     // Search state
     var searchQuery by remember { mutableStateOf("") }
