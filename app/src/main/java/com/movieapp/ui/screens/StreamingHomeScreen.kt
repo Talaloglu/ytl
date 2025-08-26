@@ -3,6 +3,7 @@ package com.movieapp.ui.screens
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.animateItemPlacement
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -14,6 +15,9 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
+import androidx.compose.material.pullrefresh.PullRefreshIndicator
+import androidx.compose.material.pullrefresh.pullRefresh
+import androidx.compose.material.pullrefresh.rememberPullRefreshState
 import androidx.compose.runtime.*
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -63,14 +67,18 @@ fun StreamingHomeScreen(
     // Using viewModel as dependency key ensures this only runs once per ViewModel instance
     LaunchedEffect(viewModel) {
         if (streamingMovies.isEmpty()) {
-            println("🎬 StreamingHomeScreen: Loading streaming movies for first time")
             viewModel.loadStreamingMovies()
-        } else {
-            println("📋 StreamingHomeScreen: Movies already loaded, skipping")
         }
     }
     
-    Column(
+    // Pull-to-refresh state wired to ViewModel loading state
+    val isRefreshing = uiState is StreamingViewModel.UiState.Loading
+    val pullRefreshState = rememberPullRefreshState(
+        refreshing = isRefreshing,
+        onRefresh = { viewModel.loadStreamingMovies(1, isRefresh = true) }
+    )
+
+    Box(
         modifier = modifier
             .fillMaxSize()
             .background(
@@ -81,6 +89,10 @@ fun StreamingHomeScreen(
                     )
                 )
             )
+            .pullRefresh(pullRefreshState)
+    ) {
+    Column(
+        modifier = Modifier.fillMaxSize()
     ) {
         // Header with search
         StreamingHeaderSection(
@@ -96,18 +108,36 @@ fun StreamingHomeScreen(
                 }
             },
             onRefresh = { viewModel.refreshMovies() },
-            isLoading = isLoading
+            isLoading = uiState is StreamingViewModel.UiState.Loading
         )
         
         // Content based on state
         when {
             isSearchActive -> {
-                // Show search results
+                val searchOfflineError = (searchUiState as? StreamingViewModel.UiState.Error)
+                if (searchOfflineError?.isOffline == true && searchResults.isNotEmpty()) {
+                    OfflineBanner(
+                        message = searchOfflineError.message,
+                        onRetry = { viewModel.searchStreamingMovies(searchQuery) }
+                    )
+                }
+                val effectiveIsSearching = (searchUiState is StreamingViewModel.UiState.Loading) || isSearching
+                val effectiveError: String? = when (val s = searchUiState) {
+                    is StreamingViewModel.UiState.Error -> s.message
+                    else -> searchError
+                }
+                val effectiveResults: List<com.movieapp.data.model.CombinedMovie> = when (val s = searchUiState) {
+                    is StreamingViewModel.UiState.Success -> s.data
+                    else -> searchResults
+                }
                 SearchResultsSection(
-                    searchResults = searchResults,
-                    isSearching = isSearching,
-                    searchError = searchError,
-                    onMovieClick = onMovieClick,
+                    searchResults = effectiveResults,
+                    isSearching = effectiveIsSearching,
+                    searchError = effectiveError,
+                    onMovieClick = { id ->
+                        viewModel.getMovieWithStreamDetails(id)
+                        onMovieClick(id)
+                    },
                     onClearSearch = {
                         searchQuery = ""
                         isSearchActive = false
@@ -115,30 +145,99 @@ fun StreamingHomeScreen(
                     }
                 )
             }
-            isLoading && streamingMovies.isEmpty() -> {
-                LoadingContent()
-            }
-            errorMessage != null -> {
-                val error = errorMessage ?: "Unknown error"
-                ErrorContent(
-                    errorMessage = error,
-                    onRetry = {
-                        viewModel.clearError()
-                        viewModel.refreshMovies()
-                    }
-                )
-            }
-            streamingMovies.isEmpty() -> {
-                EmptyStreamingContent()
-            }
             else -> {
-                StreamingMoviesGrid(
-                    movies = streamingMovies,
-                    onMovieClick = onMovieClick,
-                    onLoadMore = { viewModel.loadNextPage() },
-                    hasMorePages = hasMorePages,
-                    modifier = Modifier.fillMaxSize()
-                )
+                // If we have cached content, show it and overlay offline banner if needed
+                val offlineError = (uiState as? StreamingViewModel.UiState.Error)
+                androidx.compose.animation.AnimatedVisibility(visible = offlineError?.isOffline == true) {
+                    OfflineBanner(
+                        message = offlineError?.message ?: "You're offline",
+                        onRetry = { viewModel.loadStreamingMovies(1, isRefresh = true) }
+                    )
+                }
+
+                if (streamingMovies.isNotEmpty()) {
+                    StreamingMoviesGrid(
+                        movies = streamingMovies,
+                        onMovieClick = { id ->
+                            viewModel.getMovieWithStreamDetails(id)
+                            onMovieClick(id)
+                        },
+                        onLoadMore = { viewModel.loadNextPage() },
+                        hasMorePages = hasMorePages,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                } else {
+                    when (val state = uiState) {
+                        is StreamingViewModel.UiState.Loading -> LoadingContent()
+                        is StreamingViewModel.UiState.Success -> {
+                            StreamingMoviesGrid(
+                                movies = state.data,
+                                onMovieClick = { id ->
+                                    viewModel.getMovieWithStreamDetails(id)
+                                    onMovieClick(id)
+                                },
+                                onLoadMore = { viewModel.loadNextPage() },
+                                hasMorePages = hasMorePages,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
+                        is StreamingViewModel.UiState.Error -> {
+                            ErrorContent(
+                                errorMessage = state.message,
+                                onRetry = { viewModel.loadStreamingMovies(1, isRefresh = true) }
+                            )
+                        }
+                        else -> EmptyStreamingContent()
+                    }
+                }
+            }
+        }
+    }
+
+        // Pull-to-refresh indicator over content
+        PullRefreshIndicator(
+            refreshing = isRefreshing,
+            state = pullRefreshState,
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = 8.dp),
+            contentColor = MaterialTheme.colorScheme.primary
+        )
+    }
+}
+
+/**
+ * Offline banner shown when we detect offline errors but may still have cached content.
+ */
+@Composable
+private fun OfflineBanner(
+    message: String,
+    onRetry: () -> Unit
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.errorContainer,
+        tonalElevation = 2.dp,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        shape = RoundedCornerShape(8.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                text = message,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onErrorContainer,
+                modifier = Modifier.weight(1f)
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            OutlinedButton(onClick = onRetry) {
+                Text("Retry")
             }
         }
     }
@@ -269,7 +368,8 @@ private fun StreamingMoviesGrid(
         items(movies) { movie ->
             StreamingMovieCard(
                 movie = movie,
-                onMovieClick = { onMovieClick(movie.id) }
+                onMovieClick = { onMovieClick(movie.id) },
+                modifier = Modifier.animateItemPlacement()
             )
         }
         
