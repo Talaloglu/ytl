@@ -14,7 +14,7 @@ jobs:
       - name: Invoke Edge Function worker endpoint
         shell: bash
         env:
-          WORKER_URL: https://lgausczyvnnwvlqiiufc.functions.supabase.co/sync_movie_metadata?mode=worker
+          WORKER_URL: https://kivsnvphztbywnwlffmb.functions.supabase.co/sync_movie_metadata?mode=worker
           SB_ADMIN_TOKEN: ${{ secrets.SB_ADMIN_TOKEN }}
         run: |
           if [ -z "$SB_ADMIN_TOKEN" ]; then
@@ -33,7 +33,7 @@ jobs:
       - name: Invoke bulk refresh endpoint
         shell: bash
         env:
-          BULK_URL: https://lgausczyvnnwvlqiiufc.functions.supabase.co/sync_movie_metadata/bulk
+          BULK_URL: https://kivsnvphztbywnwlffmb.functions.supabase.co/sync_movie_metadata/bulk
           SB_ADMIN_TOKEN: ${{ secrets.SB_ADMIN_TOKEN }}
         run: |
           if [ -z "$SB_ADMIN_TOKEN" ]; then
