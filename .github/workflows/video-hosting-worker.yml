@@ -1,0 +1,169 @@
+name: Video Hosting Worker
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"  # every 5 minutes
+  workflow_dispatch: {}
+
+jobs:
+  process-video-hosting-queue:
+    name: Process Video Hosting Queue
+    runs-on: ubuntu-latest
+    env:
+      SB_FUNCTION_BASE_URL: ${{ vars.SB_FUNCTION_BASE_URL || 'https://kivsnvphztbywnwlffmb.functions.supabase.co/video_hosting_worker' }}
+      R2_S3_ENDPOINT: ${{ vars.R2_S3_ENDPOINT }}
+      R2_BUCKET: ${{ vars.R2_BUCKET }}
+      R2_PUBLIC_BASE_URL: ${{ vars.R2_PUBLIC_BASE_URL }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: ${{ vars.R2_REGION || 'auto' }}
+      SB_ADMIN_TOKEN: ${{ secrets.SB_ADMIN_TOKEN }}
+    steps:
+      - name: Validate required secrets/vars
+        shell: bash
+        run: |
+          set -euo pipefail
+          missing=()
+          [[ -z "${SB_ADMIN_TOKEN:-}" ]] && missing+=(SB_ADMIN_TOKEN)
+          [[ -z "${R2_S3_ENDPOINT:-}" ]] && missing+=(R2_S3_ENDPOINT)
+          [[ -z "${R2_BUCKET:-}" ]] && missing+=(R2_BUCKET)
+          [[ -z "${R2_PUBLIC_BASE_URL:-}" ]] && missing+=(R2_PUBLIC_BASE_URL)
+          [[ -z "${AWS_ACCESS_KEY_ID:-}" ]] && missing+=(R2_ACCESS_KEY_ID)
+          [[ -z "${AWS_SECRET_ACCESS_KEY:-}" ]] && missing+=(R2_SECRET_ACCESS_KEY)
+          if (( ${#missing[@]} )); then
+            echo "Missing required secrets/vars: ${missing[*]}" >&2
+            exit 1
+          fi
+
+      - name: Install jq and awscli
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -y
+          sudo apt-get install -y jq awscli
+
+      - name: Lease jobs
+        id: lease
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL="$SB_FUNCTION_BASE_URL/lease"
+          RESP=$(curl -sS -X POST "$URL" \
+            -H "x-admin-token: $SB_ADMIN_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d '{"limit":3}')
+          echo "$RESP" | jq . > lease.json || true
+          echo "response=$(cat lease.json | tr -d '\n')" >> $GITHUB_OUTPUT
+
+      - name: Process jobs
+        if: ${{ contains(steps.lease.outputs.response, 'jobs') }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          JQ='.jobs | if type=="array" then . else [] end'
+          COUNT=$(cat lease.json | jq "$JQ | length")
+          echo "Leased jobs: $COUNT"
+          if [[ "$COUNT" -eq 0 ]]; then
+            echo "No jobs due."
+            exit 0
+          fi
+
+          process_job() {
+            local jobJson="$1"
+            local jobId=$(echo "$jobJson" | jq -r '.id')
+            local movieId=$(echo "$jobJson" | jq -r '.movie_id')
+            local tryCount=$(echo "$jobJson" | jq -r '.try_count')
+
+            echo "Processing job $jobId for movie $movieId (try $tryCount)"
+
+            # Resolve fresh source URL + headers
+            local RESOLVE_URL="$SB_FUNCTION_BASE_URL/resolve"
+            local resolved
+            resolved=$(curl -sS -X POST "$RESOLVE_URL" \
+              -H "x-admin-token: $SB_ADMIN_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d "{\"jobId\":\"$jobId\"}") || resolved='{}'
+
+            local sourceUrl=$(echo "$resolved" | jq -r '.sourceUrl // empty')
+            if [[ -z "$sourceUrl" ]]; then
+              echo "Resolve failed or no sourceUrl; rescheduling..."
+              curl -sS -X POST "$SB_FUNCTION_BASE_URL/reschedule" \
+                -H "x-admin-token: $SB_ADMIN_TOKEN" \
+                -H "Content-Type: application/json" \
+                -d "{\"jobId\":\"$jobId\",\"tryCount\":$tryCount,\"reason\":\"resolve_failed\"}" >/dev/null 2>&1 || true
+              return 0
+            fi
+
+            # Build header flags from headers object
+            local headerFlags=()
+            local headersList=$(echo "$resolved" | jq -r '(.headers // {}) | to_entries[]? | "-H \"\(.key): \(.value)\""')
+            if [[ -n "$headersList" ]]; then
+              # shellcheck disable=SC2206
+              headerFlags=($headersList)
+            fi
+
+            # Temp file
+            local ext="$(echo "$sourceUrl" | sed -E 's/.*\.(mp4|mkv)(\?.*)?$/\1/i')"
+            [[ -z "$ext" ]] && ext="mp4"
+            local tmpFile="video_${jobId}.${ext}"
+
+            # Try download up to 3 times with fresh resolve on 401/403
+            local ok=0
+            for attempt in 1 2 3; do
+              echo "Download attempt $attempt"
+              # Resolve again for each attempt to refresh tokens
+              resolved=$(curl -sS -X POST "$RESOLVE_URL" \
+                -H "x-admin-token: $SB_ADMIN_TOKEN" \
+                -H "Content-Type: application/json" \
+                -d "{\"jobId\":\"$jobId\"}") || resolved='{}'
+              sourceUrl=$(echo "$resolved" | jq -r '.sourceUrl // empty')
+              headersList=$(echo "$resolved" | jq -r '(.headers // {}) | to_entries[]? | "-H \"\(.key): \(.value)\""')
+              headerFlags=()
+              if [[ -n "$headersList" ]]; then headerFlags=($headersList); fi
+
+              httpCode=$(curl -sS -L --fail --show-error --write-out '%{http_code}' --output "$tmpFile" \
+                "${headerFlags[@]}" "$sourceUrl" || true)
+
+              if [[ "$httpCode" == "200" || "$httpCode" == "206" ]]; then
+                ok=1; break
+              fi
+              if [[ "$httpCode" == "401" || "$httpCode" == "403" || "$httpCode" == "0" ]]; then
+                echo "Got $httpCode; will retry after re-resolve"
+                sleep 2
+                continue
+              fi
+              echo "HTTP $httpCode not retryable"
+              break
+            done
+
+            if [[ "$ok" -ne 1 ]]; then
+              echo "Download failed; rescheduling"
+              curl -sS -X POST "$SB_FUNCTION_BASE_URL/reschedule" \
+                -H "x-admin-token: $SB_ADMIN_TOKEN" \
+                -H "Content-Type: application/json" \
+                -d "{\"jobId\":\"$jobId\",\"tryCount\":$tryCount,\"reason\":\"download_failed\"}" >/dev/null 2>&1 || true
+              rm -f "$tmpFile" || true
+              return 0
+            fi
+
+            # Upload to R2 via AWS CLI
+            local ts=$(date +%s)
+            local key="movies/${movieId}/${ts}.${ext}"
+            echo "Uploading to r2://${R2_BUCKET}/${key}"
+            aws s3 cp "$tmpFile" "s3://${R2_BUCKET}/${key}" --endpoint-url "$R2_S3_ENDPOINT"
+            rm -f "$tmpFile" || true
+
+            local newUrl="${R2_PUBLIC_BASE_URL}/${key}"
+            # Complete job
+            curl -sS -X POST "$SB_FUNCTION_BASE_URL/complete" \
+              -H "x-admin-token: $SB_ADMIN_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d "{\"jobId\":\"$jobId\",\"movieId\":\"$movieId\",\"newUrl\":\"$newUrl\",\"publicId\":\"$key\",\"host\":\"r2\"}" >/dev/null
+
+            echo "Completed job $jobId -> $newUrl"
+          }
+
+          for i in $(seq 0 $((COUNT-1))); do
+            job=$(cat lease.json | jq -c "$JQ | .[$i]")
+            process_job "$job"
+          done
