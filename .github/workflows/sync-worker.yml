@@ -4,6 +4,7 @@ on:
   schedule:
     - cron: "*/5 * * * *" # every 5 minutes
     - cron: "0 3 * * *"   # daily at 03:00 UTC for bulk refresh
+    - cron: "0 4 * * *"   # daily at 04:00 UTC for maintenance
   workflow_dispatch: {}
 
 jobs:
@@ -44,4 +45,25 @@ jobs:
             -H "x-admin-token: $SB_ADMIN_TOKEN" \
             -H "Content-Type: application/json" \
             -d '{"limit":200,"missingOnly":false}' \
+            -w '\nHTTP %{http_code}\n'
+
+  maintenance:
+    name: Daily Maintenance (dry-run)
+    runs-on: ubuntu-latest
+    if: github.event.schedule == '0 4 * * *'
+    steps:
+      - name: Invoke maintenance endpoint (dry-run dedup)
+        shell: bash
+        env:
+          MAINT_URL: https://kivsnvphztbywnwlffmb.functions.supabase.co/sync_movie_metadata/maintenance
+          SB_ADMIN_TOKEN: ${{ secrets.SB_ADMIN_TOKEN }}
+        run: |
+          if [ -z "$SB_ADMIN_TOKEN" ]; then
+            echo "SB_ADMIN_TOKEN is not set. Please add it in GitHub -> Settings -> Secrets and variables -> Actions." >&2
+            exit 1
+          fi
+          curl -sS -X POST "$MAINT_URL" \
+            -H "x-admin-token: $SB_ADMIN_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d '{"limit":500,"repairLimit":200,"duplicateScanLimit":2000,"dryRunDedup":true}' \
             -w '\nHTTP %{http_code}\n'
