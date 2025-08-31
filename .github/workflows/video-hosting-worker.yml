@@ -62,18 +62,42 @@ jobs:
         if: always()
         shell: powershell
         run: |
-          $ErrorActionPreference = 'Stop'
-          $leaseData = Get-Content "lease.json" | ConvertFrom-Json
+          $ErrorActionPreference = 'Continue'
+          Write-Host "Starting Process jobs step..."
+          
+          # Debug: Check if lease.json exists
+          if (Test-Path "lease.json") {
+            Write-Host "lease.json found"
+            $rawContent = Get-Content "lease.json" -Raw
+            Write-Host "Raw content: $rawContent"
+          } else {
+            Write-Host "ERROR: lease.json not found"
+            exit 1
+          }
+          
+          try {
+            $leaseData = Get-Content "lease.json" | ConvertFrom-Json
+            Write-Host "Parsed lease data successfully"
+          } catch {
+            Write-Host "ERROR parsing JSON: $($_.Exception.Message)"
+            exit 1
+          }
+          
           if (-not $leaseData.jobs) {
+            Write-Host "No jobs property found, adding empty array"
             $leaseData | Add-Member -MemberType NoteProperty -Name jobs -Value @()
           }
+          
           $jobs = $leaseData.jobs
           $count = $jobs.Count
-          Write-Host "Leased jobs: $count"
+          Write-Host "Leased jobs count: $count"
+          
           if ($count -eq 0) {
-            Write-Host "No jobs due."
+            Write-Host "No jobs to process."
             exit 0
           }
+          
+          Write-Host "Processing $count jobs..."
           
           function Process-Job {
             param([string]$jobJson)
