@@ -159,7 +159,7 @@ jobs:
               }
               $sourceUrl = $resolved.sourceUrl
               # Using cURL config file for headers (see $hdrCfg)
-              $httpCode = & curl -sSL -w '%{http_code}' -o "$tmpFile" -K "$hdrCfg" "$sourceUrl" 2>$null
+              $httpCode = cmd /c "curl -sSL -w %{http_code} -o `"$tmpFile`" -K `"$hdrCfg`" `"$sourceUrl`" 2>nul"
               if ($httpCode -eq "200" -or $httpCode -eq "206") {
                 $ok = $true
                 break
