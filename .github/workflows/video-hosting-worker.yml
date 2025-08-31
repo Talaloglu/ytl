@@ -112,7 +112,7 @@ jobs:
             $headers = @{}
             $headers["x-admin-token"] = $env:SB_ADMIN_TOKEN
             $headers["Content-Type"] = "application/json"
-            $body = "{\"jobId\":\"$jobId\"}"
+            $body = @{jobId = $jobId} | ConvertTo-Json -Compress
             try {
               $response = Invoke-WebRequest -Uri $resolveUrl -Method Post -Headers $headers -Body $body -ContentType "application/json"
               $resolved = $response.Content | ConvertFrom-Json
@@ -125,7 +125,7 @@ jobs:
               $rescheduleHeaders = @{}
               $rescheduleHeaders["x-admin-token"] = $env:SB_ADMIN_TOKEN
               $rescheduleHeaders["Content-Type"] = "application/json"
-              $rescheduleBody = "{\"jobId\":\"$jobId\",\"tryCount\":$tryCount,\"reason\":\"resolve_failed\"}"
+              $rescheduleBody = @{jobId = $jobId; tryCount = $tryCount; reason = "resolve_failed"} | ConvertTo-Json -Compress
               Invoke-WebRequest -Uri "$env:SB_FUNCTION_BASE_URL/reschedule" -Method Post -Headers $rescheduleHeaders -Body $rescheduleBody | Out-Null
               return
             }
@@ -176,7 +176,7 @@ jobs:
               $rescheduleHeaders = @{}
               $rescheduleHeaders["x-admin-token"] = $env:SB_ADMIN_TOKEN
               $rescheduleHeaders["Content-Type"] = "application/json"
-              $rescheduleBody = "{\"jobId\":\"$jobId\",\"tryCount\":$tryCount,\"reason\":\"download_failed\"}"
+              $rescheduleBody = @{jobId = $jobId; tryCount = $tryCount; reason = "download_failed"} | ConvertTo-Json -Compress
               Invoke-WebRequest -Uri "$env:SB_FUNCTION_BASE_URL/reschedule" -Method Post -Headers $rescheduleHeaders -Body $rescheduleBody | Out-Null
               Remove-Item $tmpFile -ErrorAction SilentlyContinue
               Remove-Item $hdrCfg -ErrorAction SilentlyContinue
@@ -209,7 +209,7 @@ jobs:
             $completeHeaders = @{}
             $completeHeaders["x-admin-token"] = $env:SB_ADMIN_TOKEN
             $completeHeaders["Content-Type"] = "application/json"
-            $completeBody = "{\"jobId\":\"$jobId\",\"movieId\":\"$movieId\",\"newUrl\":\"$newUrl\",\"publicId\":\"$key\",\"host\":\"r2\"}"
+            $completeBody = @{jobId = $jobId; movieId = $movieId; newUrl = $newUrl; publicId = $key; host = "r2"} | ConvertTo-Json -Compress
             Invoke-WebRequest -Uri "$env:SB_FUNCTION_BASE_URL/complete" -Method Post -Headers $completeHeaders -Body $completeBody | Out-Null
             Write-Host "Completed job $jobId -> $newUrl"
             Remove-Item $hdrCfg -ErrorAction SilentlyContinue
