@@ -8,7 +8,7 @@ on:
 jobs:
   process-video-hosting-queue:
     name: Process Video Hosting Queue
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     env:
       SB_FUNCTION_BASE_URL: ${{ vars.SB_FUNCTION_BASE_URL || 'https://kivsnvphztbywnwlffmb.functions.supabase.co/video_hosting_worker' }}
       R2_S3_ENDPOINT: ${{ vars.R2_S3_ENDPOINT }}
