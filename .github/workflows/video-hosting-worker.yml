@@ -104,17 +104,13 @@ jobs:
               return 0
             fi
 
-            # Build header flags from headers object
-            local headerFlags=()
-            local userAgent=$(echo "$resolved" | jq -r '.headers["User-Agent"] // empty')
-            local referer=$(echo "$resolved" | jq -r '.headers["Referer"] // empty')
-            local accept=$(echo "$resolved" | jq -r '.headers["Accept"] // empty')
-            local acceptLang=$(echo "$resolved" | jq -r '.headers["Accept-Language"] // empty')
-            
-            [[ -n "$userAgent" ]] && headerFlags+=("-H" "User-Agent: $userAgent")
-            [[ -n "$referer" ]] && headerFlags+=("-H" "Referer: $referer")
-            [[ -n "$accept" ]] && headerFlags+=("-H" "Accept: $accept")
-            [[ -n "$acceptLang" ]] && headerFlags+=("-H" "Accept-Language: $acceptLang")
+            # Use fixed headers for Xtream format URLs
+            local headerFlags=(
+              "-H" "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+              "-H" "Referer: https://fatv.vip/"
+              "-H" "Accept: */*"
+              "-H" "Accept-Language: en-US,en;q=0.9"
+            )
 
             # Temp file
             local ext="$(echo "$sourceUrl" | sed -E 's/.*\.(mp4|mkv)(\?.*)?$/\1/i')"
@@ -131,16 +127,12 @@ jobs:
                 -H "Content-Type: application/json" \
                 -d "{\"jobId\":\"$jobId\"}") || resolved='{}'
               sourceUrl=$(echo "$resolved" | jq -r '.sourceUrl // empty')
-              headerFlags=()
-              local userAgent=$(echo "$resolved" | jq -r '.headers["User-Agent"] // empty')
-              local referer=$(echo "$resolved" | jq -r '.headers["Referer"] // empty')
-              local accept=$(echo "$resolved" | jq -r '.headers["Accept"] // empty')
-              local acceptLang=$(echo "$resolved" | jq -r '.headers["Accept-Language"] // empty')
-              
-              [[ -n "$userAgent" ]] && headerFlags+=("-H" "User-Agent: $userAgent")
-              [[ -n "$referer" ]] && headerFlags+=("-H" "Referer: $referer")
-              [[ -n "$accept" ]] && headerFlags+=("-H" "Accept: $accept")
-              [[ -n "$acceptLang" ]] && headerFlags+=("-H" "Accept-Language: $acceptLang")
+              # Use simple fixed headers for Xtream URLs
+              local headerFlags=(
+                "-H" "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+                "-H" "Referer: https://fatv.vip/"
+                "-H" "Accept: */*"
+              )
 
               httpCode=$(curl -sS -L --fail --show-error --write-out '%{http_code}' --output "$tmpFile" \
                 "${headerFlags[@]}" "$sourceUrl" || true)
