@@ -134,12 +134,44 @@ jobs:
             
             # Prepare cURL header config to avoid quoting issues
             $hdrCfg = "headers.cfg"
-            $headerLines = @(
-              'header = "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"'
-              'header = "Referer: https://fatv.vip/"'
-              'header = "Accept: */*"'
-              'header = "Accept-Language: en-US,en;q=0.9"'
-            )
+            $headerLines = @()
+            function Add-HeaderLinesFrom($hdrObj) {
+              if (-not $hdrObj) { return }
+              if ($hdrObj -is [string]) {
+                $line = 'header = "' + ($hdrObj -replace '"','\"') + '"'
+                $script:headerLines += $line
+                return
+              }
+              if ($hdrObj -is [System.Collections.IDictionary]) {
+                foreach ($kv in $hdrObj.GetEnumerator()) {
+                  $name = [string]$kv.Key
+                  $value = [string]$kv.Value
+                  $line = 'header = "' + $name + ': ' + ($value -replace '"','\"') + '"'
+                  $script:headerLines += $line
+                }
+                return
+              }
+              if ($hdrObj -is [System.Collections.IEnumerable]) {
+                foreach ($item in $hdrObj) { Add-HeaderLinesFrom $item }
+              }
+            }
+
+            # Prefer resolver-provided headers; fallback to job.headers_json; then defaults
+            Add-HeaderLinesFrom $resolved.headers
+            if ($headerLines.Count -eq 0) { Add-HeaderLinesFrom $job.headers_json }
+
+            # Ensure key defaults exist
+            $defaults = @{
+              'User-Agent' = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+              'Accept' = '*/*'
+              'Accept-Language' = 'en-US,en;q=0.9'
+              'Referer' = 'https://fatv.vip/'
+            }
+            foreach ($kv in $defaults.GetEnumerator()) {
+              if (-not ($headerLines -match [regex]::Escape($kv.Key + ':'))) {
+                $headerLines += ('header = "' + $kv.Key + ': ' + $kv.Value + '"')
+              }
+            }
             $headerLines | Out-File -FilePath $hdrCfg -Encoding UTF8
             
             # Temp file
@@ -159,7 +191,15 @@ jobs:
               }
               $sourceUrl = $resolved.sourceUrl
               # Using cURL config file for headers (see $hdrCfg)
-              $httpCode = cmd /c "curl -sSL -w %{http_code} -o `"$tmpFile`" -K `"$hdrCfg`" `"$sourceUrl`" 2>nul"
+              $curlExe = Join-Path $env:SystemRoot "System32\\curl.exe"
+              if (-not (Test-Path $curlExe)) { $curlExe = "curl" }
+              $cmd = "`"$curlExe`" -sSL --connect-timeout 20 --max-time 900 -w %%{http_code} -o `"$tmpFile`" -K `"$hdrCfg`" `"$sourceUrl`" 2>nul"
+              Write-Host "Executing: cmd /c $cmd"
+              $httpCode = cmd /c $cmd
+              $httpCode = ($httpCode | Out-String).Trim()
+              $exit = $LASTEXITCODE
+              Write-Host "curl exit=$exit, httpCode=[$httpCode]"
+              if ([string]::IsNullOrWhiteSpace($httpCode)) { $httpCode = "0" }
               if ($httpCode -eq "200" -or $httpCode -eq "206") {
                 $ok = $true
                 break
