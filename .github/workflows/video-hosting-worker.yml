@@ -114,7 +114,7 @@ jobs:
             $headers = @{}
             $headers["x-admin-token"] = $env:SB_ADMIN_TOKEN
             $headers["Content-Type"] = "application/json"
-            $body = @{jobId = $jobId} | ConvertTo-Json -Compress
+            $body = @{jobId = $jobId; try_count = $tryCount } | ConvertTo-Json -Compress
             try {
               $response = Invoke-WebRequest -Uri $resolveUrl -Method Post -Headers $headers -Body $body -ContentType "application/json"
               $resolved = $response.Content | ConvertFrom-Json
@@ -183,20 +183,44 @@ jobs:
             for ($attempt = 1; $attempt -le 3; $attempt++) {
               Write-Host "Download attempt $attempt"
               # Resolve again for each attempt to refresh tokens
+              # Include try_count to let resolver rotate headers/URLs
+              $bodyResolve = @{ jobId = $jobId; try_count = ($tryCount + $attempt - 1) } | ConvertTo-Json -Compress
               try {
-                $response = Invoke-WebRequest -Uri $resolveUrl -Method Post -Headers $headers -Body $body -ContentType "application/json"
+                $response = Invoke-WebRequest -Uri $resolveUrl -Method Post -Headers $headers -Body $bodyResolve -ContentType "application/json"
                 $resolved = $response.Content | ConvertFrom-Json
               } catch {
                 $resolved = @{}
               }
               $sourceUrl = $resolved.sourceUrl
+              # Rebuild header config per attempt from latest resolved headers
+              $script:headerLines = @()
+              Add-HeaderLinesFrom $resolved.headers
+              if ($headerLines.Count -eq 0) { Add-HeaderLinesFrom $job.headers_json }
+              $defaults = @{
+                'User-Agent' = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                'Accept' = '*/*'
+                'Accept-Language' = 'en-US,en;q=0.9'
+                'Referer' = 'https://fatv.vip/'
+              }
+              foreach ($kv in $defaults.GetEnumerator()) {
+                if (-not ($headerLines -match [regex]::Escape($kv.Key + ':'))) {
+                  $headerLines += ('header = "' + $kv.Key + ': ' + $kv.Value + '"')
+                }
+              }
+              $headerLines | Out-File -FilePath $hdrCfg -Encoding UTF8
               # Using cURL config file for headers (see $hdrCfg)
               $curlExe = Join-Path $env:SystemRoot "System32\\curl.exe"
               if (-not (Test-Path $curlExe)) { $curlExe = "curl" }
-              $cmd = "`"$curlExe`" -sSL --connect-timeout 20 --max-time 900 -w %%{http_code} -o `"$tmpFile`" -K `"$hdrCfg`" `"$sourceUrl`" 2>nul"
+              # Capture HTTP code reliably to a file to avoid blank stdout issues
+              $codeFile = "http_code_$attempt.txt"
+              $cmd = "`"$curlExe`" -sSL --connect-timeout 20 --max-time 900 -o `"$tmpFile`" -K `"$hdrCfg`" `"$sourceUrl`" -w \"%%{http_code}\" > `"$codeFile`" 2>nul"
               Write-Host "Executing: cmd /c $cmd"
-              $httpCode = cmd /c $cmd
-              $httpCode = ($httpCode | Out-String).Trim()
+              cmd /c $cmd | Out-Null
+              $httpCode = ""
+              if (Test-Path $codeFile) {
+                try { $httpCode = (Get-Content $codeFile -Raw).Trim() } catch { $httpCode = "" }
+                Remove-Item $codeFile -ErrorAction SilentlyContinue
+              }
               $exit = $LASTEXITCODE
               Write-Host "curl exit=$exit, httpCode=[$httpCode]"
               if ([string]::IsNullOrWhiteSpace($httpCode)) { $httpCode = "0" }
