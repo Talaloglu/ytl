@@ -59,7 +59,7 @@ jobs:
           Write-Host "response=$responseContent" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding UTF8
 
       - name: Process jobs
-        if: ${{ contains(steps.lease.outputs.response, 'jobs') }}
+        if: always()
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
