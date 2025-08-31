@@ -60,10 +60,9 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $url = "$env:SB_FUNCTION_BASE_URL/lease"
-          $headers = @{
-            "x-admin-token" = $env:SB_ADMIN_TOKEN
-            "Content-Type" = "application/json"
-          }
+          $headers = @{}
+          $headers["x-admin-token"] = $env:SB_ADMIN_TOKEN
+          $headers["Content-Type"] = "application/json"
           $body = '{"limit":3}'
           $response = Invoke-WebRequest -Uri $url -Method Post -Headers $headers -Body $body -ContentType "application/json"
           $response.Content | ConvertFrom-Json | ConvertTo-Json -Depth 10 | Out-File -FilePath "lease.json" -Encoding UTF8
@@ -97,10 +96,9 @@ jobs:
             
             # Resolve fresh source URL + headers
             $resolveUrl = "$env:SB_FUNCTION_BASE_URL/resolve"
-            $headers = @{
-              "x-admin-token" = $env:SB_ADMIN_TOKEN
-              "Content-Type" = "application/json"
-            }
+            $headers = @{}
+            $headers["x-admin-token"] = $env:SB_ADMIN_TOKEN
+            $headers["Content-Type"] = "application/json"
             $body = "{\"jobId\":\"$jobId\"}"
             try {
               $response = Invoke-WebRequest -Uri $resolveUrl -Method Post -Headers $headers -Body $body -ContentType "application/json"
@@ -111,10 +109,9 @@ jobs:
             $sourceUrl = $resolved.sourceUrl
             if (-not $sourceUrl) {
               Write-Host "Resolve failed or no sourceUrl; rescheduling..."
-              $rescheduleHeaders = @{
-                "x-admin-token" = $env:SB_ADMIN_TOKEN
-                "Content-Type" = "application/json"
-              }
+              $rescheduleHeaders = @{}
+              $rescheduleHeaders["x-admin-token"] = $env:SB_ADMIN_TOKEN
+              $rescheduleHeaders["Content-Type"] = "application/json"
               $rescheduleBody = "{\"jobId\":\"$jobId\",\"tryCount\":$tryCount,\"reason\":\"resolve_failed\"}"
               Invoke-WebRequest -Uri "$env:SB_FUNCTION_BASE_URL/reschedule" -Method Post -Headers $rescheduleHeaders -Body $rescheduleBody | Out-Null
               return
@@ -163,10 +160,9 @@ jobs:
             
             if (-not $ok) {
               Write-Host "Download failed; rescheduling"
-              $rescheduleHeaders = @{
-                "x-admin-token" = $env:SB_ADMIN_TOKEN
-                "Content-Type" = "application/json"
-              }
+              $rescheduleHeaders = @{}
+              $rescheduleHeaders["x-admin-token"] = $env:SB_ADMIN_TOKEN
+              $rescheduleHeaders["Content-Type"] = "application/json"
               $rescheduleBody = "{\"jobId\":\"$jobId\",\"tryCount\":$tryCount,\"reason\":\"download_failed\"}"
               Invoke-WebRequest -Uri "$env:SB_FUNCTION_BASE_URL/reschedule" -Method Post -Headers $rescheduleHeaders -Body $rescheduleBody | Out-Null
               Remove-Item $tmpFile -ErrorAction SilentlyContinue
@@ -182,10 +178,9 @@ jobs:
             Remove-Item $tmpFile -ErrorAction SilentlyContinue
             $newUrl = "${env:R2_PUBLIC_BASE_URL}/${key}"
             # Complete job
-            $completeHeaders = @{
-              "x-admin-token" = $env:SB_ADMIN_TOKEN
-              "Content-Type" = "application/json"
-            }
+            $completeHeaders = @{}
+            $completeHeaders["x-admin-token"] = $env:SB_ADMIN_TOKEN
+            $completeHeaders["Content-Type"] = "application/json"
             $completeBody = "{\"jobId\":\"$jobId\",\"movieId\":\"$movieId\",\"newUrl\":\"$newUrl\",\"publicId\":\"$key\",\"host\":\"r2\"}"
             Invoke-WebRequest -Uri "$env:SB_FUNCTION_BASE_URL/complete" -Method Post -Headers $completeHeaders -Body $completeBody | Out-Null
             Write-Host "Completed job $jobId -> $newUrl"
