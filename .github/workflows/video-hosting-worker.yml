@@ -20,7 +20,7 @@ jobs:
       SB_ADMIN_TOKEN: ${{ secrets.SB_ADMIN_TOKEN }}
     steps:
       - name: Validate required secrets/vars
-        shell: pwsh
+        shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
           $missing = @()
@@ -36,7 +36,7 @@ jobs:
           }
 
       - name: Install dependencies
-        shell: pwsh
+        shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
           # Install jq if not present
@@ -46,7 +46,7 @@ jobs:
           # curl and unzip are usually available on Windows
           
       - name: Install AWS CLI v2
-        shell: pwsh
+        shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
           Invoke-WebRequest -Uri "https://awscli.amazonaws.com/AWSCLIV2.msi" -OutFile "AWSCLIV2.msi"
@@ -56,7 +56,7 @@ jobs:
 
       - name: Lease jobs
         id: lease
-        shell: pwsh
+        shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
           $url = "$env:SB_FUNCTION_BASE_URL/lease"
@@ -71,7 +71,7 @@ jobs:
 
       - name: Process jobs
         if: ${{ contains(steps.lease.outputs.response, 'jobs') }}
-        shell: pwsh
+        shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
           $leaseData = Get-Content "lease.json" | ConvertFrom-Json
