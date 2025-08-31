@@ -334,6 +334,18 @@ async function resolveFatvUrl(job: any, tryCount: number) {
     }), { status: 200 });
   }
   
+  // Strategy 4: Mark for manual review after repeated failures
+  if (tryCount >= 6) {
+    await supabase
+      .from("videos_sync_queue")
+      .update({ reason: "repeated_failure_manual_review", next_try_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString() })
+      .eq("id", job.id);
+    return new Response(JSON.stringify({
+      error: "repeated_failure",
+      message: "Job marked for manual review due to repeated failures."
+    }), { status: 503 });
+  }
+  
   // Default: Original URL with rotating headers
   const headers: any = {
     "User-Agent": userAgent,
