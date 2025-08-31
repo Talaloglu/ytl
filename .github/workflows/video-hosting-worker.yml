@@ -104,11 +104,17 @@ jobs:
               return 0
             fi
 
-            # Build header flags from headers object - properly handle spaces in values
+            # Build header flags from headers object
             local headerFlags=()
-            while IFS= read -r header; do
-              [[ -n "$header" ]] && headerFlags+=("$header")
-            done < <(echo "$resolved" | jq -r '(.headers // {}) | to_entries[]? | "-H", "\(.key): \(.value)"')
+            local userAgent=$(echo "$resolved" | jq -r '.headers["User-Agent"] // empty')
+            local referer=$(echo "$resolved" | jq -r '.headers["Referer"] // empty')
+            local accept=$(echo "$resolved" | jq -r '.headers["Accept"] // empty')
+            local acceptLang=$(echo "$resolved" | jq -r '.headers["Accept-Language"] // empty')
+            
+            [[ -n "$userAgent" ]] && headerFlags+=("-H" "User-Agent: $userAgent")
+            [[ -n "$referer" ]] && headerFlags+=("-H" "Referer: $referer")
+            [[ -n "$accept" ]] && headerFlags+=("-H" "Accept: $accept")
+            [[ -n "$acceptLang" ]] && headerFlags+=("-H" "Accept-Language: $acceptLang")
 
             # Temp file
             local ext="$(echo "$sourceUrl" | sed -E 's/.*\.(mp4|mkv)(\?.*)?$/\1/i')"
@@ -126,9 +132,15 @@ jobs:
                 -d "{\"jobId\":\"$jobId\"}") || resolved='{}'
               sourceUrl=$(echo "$resolved" | jq -r '.sourceUrl // empty')
               headerFlags=()
-              while IFS= read -r header; do
-                [[ -n "$header" ]] && headerFlags+=("$header")
-              done < <(echo "$resolved" | jq -r '(.headers // {}) | to_entries[]? | "-H", "\(.key): \(.value)"')
+              local userAgent=$(echo "$resolved" | jq -r '.headers["User-Agent"] // empty')
+              local referer=$(echo "$resolved" | jq -r '.headers["Referer"] // empty')
+              local accept=$(echo "$resolved" | jq -r '.headers["Accept"] // empty')
+              local acceptLang=$(echo "$resolved" | jq -r '.headers["Accept-Language"] // empty')
+              
+              [[ -n "$userAgent" ]] && headerFlags+=("-H" "User-Agent: $userAgent")
+              [[ -n "$referer" ]] && headerFlags+=("-H" "Referer: $referer")
+              [[ -n "$accept" ]] && headerFlags+=("-H" "Accept: $accept")
+              [[ -n "$acceptLang" ]] && headerFlags+=("-H" "Accept-Language: $acceptLang")
 
               httpCode=$(curl -sS -L --fail --show-error --write-out '%{http_code}' --output "$tmpFile" \
                 "${headerFlags[@]}" "$sourceUrl" || true)
