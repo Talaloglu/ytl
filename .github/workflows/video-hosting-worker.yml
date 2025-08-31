@@ -11,12 +11,10 @@ jobs:
     runs-on: self-hosted
     env:
       SB_FUNCTION_BASE_URL: ${{ vars.SB_FUNCTION_BASE_URL || 'https://kivsnvphztbywnwlffmb.functions.supabase.co/video_hosting_worker' }}
-      R2_S3_ENDPOINT: ${{ vars.R2_S3_ENDPOINT }}
+      R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
       R2_BUCKET: ${{ vars.R2_BUCKET }}
       R2_PUBLIC_BASE_URL: ${{ vars.R2_PUBLIC_BASE_URL }}
-      AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-      AWS_DEFAULT_REGION: ${{ vars.R2_REGION || 'auto' }}
+      R2_API_TOKEN: ${{ secrets.R2_API_TOKEN }}
       SB_ADMIN_TOKEN: ${{ secrets.SB_ADMIN_TOKEN }}
     steps:
       - name: Validate required secrets/vars
@@ -25,11 +23,10 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $missing = @()
           if (-not $env:SB_ADMIN_TOKEN) { $missing += 'SB_ADMIN_TOKEN' }
-          if (-not $env:R2_S3_ENDPOINT) { $missing += 'R2_S3_ENDPOINT' }
+          if (-not $env:R2_ACCOUNT_ID) { $missing += 'R2_ACCOUNT_ID' }
           if (-not $env:R2_BUCKET) { $missing += 'R2_BUCKET' }
           if (-not $env:R2_PUBLIC_BASE_URL) { $missing += 'R2_PUBLIC_BASE_URL' }
-          if (-not $env:AWS_ACCESS_KEY_ID) { $missing += 'R2_ACCESS_KEY_ID' }
-          if (-not $env:AWS_SECRET_ACCESS_KEY) { $missing += 'R2_SECRET_ACCESS_KEY' }
+          if (-not $env:R2_API_TOKEN) { $missing += 'R2_API_TOKEN' }
           if ($missing.Count -gt 0) {
             Write-Error "Missing required secrets/vars: $($missing -join ', ')"
             exit 1
@@ -45,14 +42,6 @@ jobs:
           }
           # curl and unzip are usually available on Windows
           
-      - name: Install AWS CLI v2
-        shell: powershell
-        run: |
-          $ErrorActionPreference = 'Stop'
-          Invoke-WebRequest -Uri "https://awscli.amazonaws.com/AWSCLIV2.msi" -OutFile "AWSCLIV2.msi"
-          Start-Process msiexec.exe -Wait -ArgumentList "/i AWSCLIV2.msi /quiet"
-          Remove-Item AWSCLIV2.msi
-          aws --version
 
       - name: Lease jobs
         id: lease
@@ -170,11 +159,26 @@ jobs:
               return
             }
             
-            # Upload to R2 via AWS CLI
+            # Upload to R2 via REST API
             $ts = [int](Get-Date -UFormat %s)
             $key = "movies/${movieId}/${ts}.${ext}"
             Write-Host "Uploading to r2://${env:R2_BUCKET}/${key}"
-            & aws s3 cp "$tmpFile" "s3://${env:R2_BUCKET}/${key}" --endpoint-url "$env:R2_S3_ENDPOINT"
+            
+            # R2 REST API upload
+            $uploadUrl = "https://${env:R2_ACCOUNT_ID}.r2.cloudflarestorage.com/${env:R2_BUCKET}/${key}"
+            $uploadHeaders = @{}
+            $uploadHeaders["Authorization"] = "Bearer $env:R2_API_TOKEN"
+            $uploadHeaders["Content-Type"] = "video/$ext"
+            
+            # Upload file content
+            $fileBytes = [System.IO.File]::ReadAllBytes($tmpFile)
+            try {
+              Invoke-RestMethod -Uri $uploadUrl -Method Put -Headers $uploadHeaders -Body $fileBytes
+              Write-Host "Upload successful"
+            } catch {
+              Write-Host "Upload failed: $($_.Exception.Message)"
+              throw
+            }
             Remove-Item $tmpFile -ErrorAction SilentlyContinue
             $newUrl = "${env:R2_PUBLIC_BASE_URL}/${key}"
             # Complete job
