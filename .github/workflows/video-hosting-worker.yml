@@ -83,9 +83,11 @@ jobs:
             exit 1
           }
           
-          if (-not $leaseData.jobs) {
-            Write-Host "No jobs property found, adding empty array"
-            $leaseData | Add-Member -MemberType NoteProperty -Name jobs -Value @()
+          if (-not $leaseData.jobs -or $leaseData.jobs.Count -eq 0) {
+            Write-Host "Jobs array is empty or missing"
+            if (-not $leaseData.jobs) {
+              $leaseData | Add-Member -MemberType NoteProperty -Name jobs -Value @()
+            }
           }
           
           $jobs = $leaseData.jobs
