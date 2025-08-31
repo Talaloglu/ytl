@@ -104,13 +104,11 @@ jobs:
               return 0
             fi
 
-            # Build header flags from headers object
+            # Build header flags from headers object - properly handle spaces in values
             local headerFlags=()
-            local headersList=$(echo "$resolved" | jq -r '(.headers // {}) | to_entries[]? | "-H \"\(.key): \(.value)\""')
-            if [[ -n "$headersList" ]]; then
-              # shellcheck disable=SC2206
-              headerFlags=($headersList)
-            fi
+            while IFS= read -r header; do
+              [[ -n "$header" ]] && headerFlags+=("$header")
+            done < <(echo "$resolved" | jq -r '(.headers // {}) | to_entries[]? | "-H", "\(.key): \(.value)"')
 
             # Temp file
             local ext="$(echo "$sourceUrl" | sed -E 's/.*\.(mp4|mkv)(\?.*)?$/\1/i')"
@@ -127,9 +125,10 @@ jobs:
                 -H "Content-Type: application/json" \
                 -d "{\"jobId\":\"$jobId\"}") || resolved='{}'
               sourceUrl=$(echo "$resolved" | jq -r '.sourceUrl // empty')
-              headersList=$(echo "$resolved" | jq -r '(.headers // {}) | to_entries[]? | "-H \"\(.key): \(.value)\""')
               headerFlags=()
-              if [[ -n "$headersList" ]]; then headerFlags=($headersList); fi
+              while IFS= read -r header; do
+                [[ -n "$header" ]] && headerFlags+=("$header")
+              done < <(echo "$resolved" | jq -r '(.headers // {}) | to_entries[]? | "-H", "\(.key): \(.value)"')
 
               httpCode=$(curl -sS -L --fail --show-error --write-out '%{http_code}' --output "$tmpFile" \
                 "${headerFlags[@]}" "$sourceUrl" || true)
