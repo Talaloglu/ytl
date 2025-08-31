@@ -20,161 +20,179 @@ jobs:
       SB_ADMIN_TOKEN: ${{ secrets.SB_ADMIN_TOKEN }}
     steps:
       - name: Validate required secrets/vars
-        shell: bash
+        shell: pwsh
         run: |
-          set -euo pipefail
-          missing=()
-          [[ -z "${SB_ADMIN_TOKEN:-}" ]] && missing+=(SB_ADMIN_TOKEN)
-          [[ -z "${R2_S3_ENDPOINT:-}" ]] && missing+=(R2_S3_ENDPOINT)
-          [[ -z "${R2_BUCKET:-}" ]] && missing+=(R2_BUCKET)
-          [[ -z "${R2_PUBLIC_BASE_URL:-}" ]] && missing+=(R2_PUBLIC_BASE_URL)
-          [[ -z "${AWS_ACCESS_KEY_ID:-}" ]] && missing+=(R2_ACCESS_KEY_ID)
-          [[ -z "${AWS_SECRET_ACCESS_KEY:-}" ]] && missing+=(R2_SECRET_ACCESS_KEY)
-          if (( ${#missing[@]} )); then
-            echo "Missing required secrets/vars: ${missing[*]}" >&2
+          $ErrorActionPreference = 'Stop'
+          $missing = @()
+          if (-not $env:SB_ADMIN_TOKEN) { $missing += 'SB_ADMIN_TOKEN' }
+          if (-not $env:R2_S3_ENDPOINT) { $missing += 'R2_S3_ENDPOINT' }
+          if (-not $env:R2_BUCKET) { $missing += 'R2_BUCKET' }
+          if (-not $env:R2_PUBLIC_BASE_URL) { $missing += 'R2_PUBLIC_BASE_URL' }
+          if (-not $env:AWS_ACCESS_KEY_ID) { $missing += 'R2_ACCESS_KEY_ID' }
+          if (-not $env:AWS_SECRET_ACCESS_KEY) { $missing += 'R2_SECRET_ACCESS_KEY' }
+          if ($missing.Count -gt 0) {
+            Write-Error "Missing required secrets/vars: $($missing -join ', ')"
             exit 1
-          fi
+          }
 
       - name: Install dependencies
-        shell: bash
+        shell: pwsh
         run: |
-          set -euo pipefail
-          sudo apt-get update -y
-          sudo apt-get install -y jq curl unzip
+          $ErrorActionPreference = 'Stop'
+          # Install jq if not present
+          if (-not (Get-Command jq -ErrorAction SilentlyContinue)) {
+            winget install --id jqlang.jq --accept-source-agreements --accept-package-agreements
+          }
+          # curl and unzip are usually available on Windows
           
       - name: Install AWS CLI v2
-        shell: bash
+        shell: pwsh
         run: |
-          set -euo pipefail
-          curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
-          unzip -q awscliv2.zip
-          sudo ./aws/install --update
-          rm -rf awscliv2.zip aws/
+          $ErrorActionPreference = 'Stop'
+          Invoke-WebRequest -Uri "https://awscli.amazonaws.com/AWSCLIV2.msi" -OutFile "AWSCLIV2.msi"
+          Start-Process msiexec.exe -Wait -ArgumentList "/i AWSCLIV2.msi /quiet"
+          Remove-Item AWSCLIV2.msi
           aws --version
 
       - name: Lease jobs
         id: lease
-        shell: bash
+        shell: pwsh
         run: |
-          set -euo pipefail
-          URL="$SB_FUNCTION_BASE_URL/lease"
-          RESP=$(curl -sS -X POST "$URL" \
-            -H "x-admin-token: $SB_ADMIN_TOKEN" \
-            -H "Content-Type: application/json" \
-            -d '{"limit":3}')
-          echo "$RESP" | jq . > lease.json || true
-          echo "response=$(cat lease.json | tr -d '\n')" >> $GITHUB_OUTPUT
+          $ErrorActionPreference = 'Stop'
+          $url = "$env:SB_FUNCTION_BASE_URL/lease"
+          $headers = @{
+            "x-admin-token" = $env:SB_ADMIN_TOKEN
+            "Content-Type" = "application/json"
+          }
+          $body = '{"limit":3}'
+          $response = Invoke-WebRequest -Uri $url -Method Post -Headers $headers -Body $body -ContentType "application/json"
+          $response.Content | ConvertFrom-Json | ConvertTo-Json -Depth 10 | Out-File -FilePath "lease.json" -Encoding UTF8
+          $responseContent = Get-Content "lease.json" -Raw
+          Write-Host "response=$responseContent" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding UTF8
 
       - name: Process jobs
         if: ${{ contains(steps.lease.outputs.response, 'jobs') }}
-        shell: bash
+        shell: pwsh
         run: |
-          set -euo pipefail
-          JQ='.jobs | if type=="array" then . else [] end'
-          COUNT=$(cat lease.json | jq "$JQ | length")
-          echo "Leased jobs: $COUNT"
-          if [[ "$COUNT" -eq 0 ]]; then
-            echo "No jobs due."
-            exit 0
-          fi
-
-          process_job() {
-            local jobJson="$1"
-            local jobId=$(echo "$jobJson" | jq -r '.id')
-            local movieId=$(echo "$jobJson" | jq -r '.movie_id')
-            local tryCount=$(echo "$jobJson" | jq -r '.try_count')
-
-            echo "Processing job $jobId for movie $movieId (try $tryCount)"
-
-            # Resolve fresh source URL + headers
-            local RESOLVE_URL="$SB_FUNCTION_BASE_URL/resolve"
-            local resolved
-            resolved=$(curl -sS -X POST "$RESOLVE_URL" \
-              -H "x-admin-token: $SB_ADMIN_TOKEN" \
-              -H "Content-Type: application/json" \
-              -d "{\"jobId\":\"$jobId\"}") || resolved='{}'
-
-            local sourceUrl=$(echo "$resolved" | jq -r '.sourceUrl // empty')
-            if [[ -z "$sourceUrl" ]]; then
-              echo "Resolve failed or no sourceUrl; rescheduling..."
-              curl -sS -X POST "$SB_FUNCTION_BASE_URL/reschedule" \
-                -H "x-admin-token: $SB_ADMIN_TOKEN" \
-                -H "Content-Type: application/json" \
-                -d "{\"jobId\":\"$jobId\",\"tryCount\":$tryCount,\"reason\":\"resolve_failed\"}" >/dev/null 2>&1 || true
-              rm -f "$hdrCfg" || true
-              return 0
-            fi
-
-            # Prepare cURL header config to avoid quoting issues
-            local hdrCfg="headers.cfg"
-            printf '%s\n' \
-              'header = "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"' \
-              'header = "Referer: https://fatv.vip/"' \
-              'header = "Accept: */*"' \
-              'header = "Accept-Language: en-US,en;q=0.9"' \
-              > "$hdrCfg"
-
-            # Temp file
-            local ext="$(echo "$sourceUrl" | sed -E 's/.*\.(mp4|mkv)(\?.*)?$/\1/i')"
-            [[ -z "$ext" ]] && ext="mp4"
-            local tmpFile="video_${jobId}.${ext}"
-
-            # Try download up to 3 times with fresh resolve on 401/403
-            local ok=0
-            for attempt in 1 2 3; do
-              echo "Download attempt $attempt"
-              # Resolve again for each attempt to refresh tokens
-              resolved=$(curl -sS -X POST "$RESOLVE_URL" \
-                -H "x-admin-token: $SB_ADMIN_TOKEN" \
-                -H "Content-Type: application/json" \
-                -d "{\"jobId\":\"$jobId\"}") || resolved='{}'
-              sourceUrl=$(echo "$resolved" | jq -r '.sourceUrl // empty')
-              # Using cURL config file for headers (see $hdrCfg)
-
-              httpCode=$(curl -sSL -w '%{http_code}' -o "$tmpFile" -K "$hdrCfg" "$sourceUrl" || true)
-
-              if [[ "$httpCode" == "200" || "$httpCode" == "206" ]]; then
-                ok=1; break
-              fi
-              if [[ "$httpCode" == "401" || "$httpCode" == "403" || "$httpCode" == "0" ]]; then
-                echo "Got $httpCode; will retry after re-resolve"
-                sleep 2
-                continue
-              fi
-              echo "HTTP $httpCode not retryable"
-              break
-            done
-
-            if [[ "$ok" -ne 1 ]]; then
-              echo "Download failed; rescheduling"
-              curl -sS -X POST "$SB_FUNCTION_BASE_URL/reschedule" \
-                -H "x-admin-token: $SB_ADMIN_TOKEN" \
-                -H "Content-Type: application/json" \
-                -d "{\"jobId\":\"$jobId\",\"tryCount\":$tryCount,\"reason\":\"download_failed\"}" >/dev/null 2>&1 || true
-              rm -f "$tmpFile" || true
-              rm -f "$hdrCfg" || true
-              return 0
-            fi
-
-            # Upload to R2 via AWS CLI
-            local ts=$(date +%s)
-            local key="movies/${movieId}/${ts}.${ext}"
-            echo "Uploading to r2://${R2_BUCKET}/${key}"
-            aws s3 cp "$tmpFile" "s3://${R2_BUCKET}/${key}" --endpoint-url "$R2_S3_ENDPOINT"
-            rm -f "$tmpFile" || true
-
-            local newUrl="${R2_PUBLIC_BASE_URL}/${key}"
-            # Complete job
-            curl -sS -X POST "$SB_FUNCTION_BASE_URL/complete" \
-              -H "x-admin-token: $SB_ADMIN_TOKEN" \
-              -H "Content-Type: application/json" \
-              -d "{\"jobId\":\"$jobId\",\"movieId\":\"$movieId\",\"newUrl\":\"$newUrl\",\"publicId\":\"$key\",\"host\":\"r2\"}" >/dev/null
-
-            echo "Completed job $jobId -> $newUrl"
-            rm -f "$hdrCfg" || true
+          $ErrorActionPreference = 'Stop'
+          $leaseData = Get-Content "lease.json" | ConvertFrom-Json
+          if (-not $leaseData.jobs) {
+            $leaseData | Add-Member -MemberType NoteProperty -Name jobs -Value @()
           }
-
-          for i in $(seq 0 $((COUNT-1))); do
-            job=$(cat lease.json | jq -c "$JQ | .[$i]")
-            process_job "$job"
-          done
+          $jobs = $leaseData.jobs
+          $count = $jobs.Count
+          Write-Host "Leased jobs: $count"
+          if ($count -eq 0) {
+            Write-Host "No jobs due."
+            exit 0
+          }
+          
+          function Process-Job {
+            param([string]$jobJson)
+            $job = $jobJson | ConvertFrom-Json
+            $jobId = $job.id
+            $movieId = $job.movie_id
+            $tryCount = $job.try_count
+            Write-Host "Processing job $jobId for movie $movieId (try $tryCount)"
+            
+            # Resolve fresh source URL + headers
+            $resolveUrl = "$env:SB_FUNCTION_BASE_URL/resolve"
+            $headers = @{
+              "x-admin-token" = $env:SB_ADMIN_TOKEN
+              "Content-Type" = "application/json"
+            }
+            $body = "{\"jobId\":\"$jobId\"}"
+            try {
+              $response = Invoke-WebRequest -Uri $resolveUrl -Method Post -Headers $headers -Body $body -ContentType "application/json"
+              $resolved = $response.Content | ConvertFrom-Json
+            } catch {
+              $resolved = @{}
+            }
+            $sourceUrl = $resolved.sourceUrl
+            if (-not $sourceUrl) {
+              Write-Host "Resolve failed or no sourceUrl; rescheduling..."
+              $rescheduleHeaders = @{
+                "x-admin-token" = $env:SB_ADMIN_TOKEN
+                "Content-Type" = "application/json"
+              }
+              $rescheduleBody = "{\"jobId\":\"$jobId\",\"tryCount\":$tryCount,\"reason\":\"resolve_failed\"}"
+              Invoke-WebRequest -Uri "$env:SB_FUNCTION_BASE_URL/reschedule" -Method Post -Headers $rescheduleHeaders -Body $rescheduleBody | Out-Null
+              return
+            }
+            
+            # Prepare cURL header config to avoid quoting issues
+            $hdrCfg = "headers.cfg"
+            $headerLines = @(
+              'header = "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"'
+              'header = "Referer: https://fatv.vip/"'
+              'header = "Accept: */*"'
+              'header = "Accept-Language: en-US,en;q=0.9"'
+            )
+            $headerLines | Out-File -FilePath $hdrCfg -Encoding UTF8
+            
+            # Temp file
+            $ext = if ($sourceUrl -match '\.(mp4|mkv)(\?.*)?$') { $matches[1] } else { "mp4" }
+            $tmpFile = "video_${jobId}.${ext}"
+            
+            # Try download up to 3 times with fresh resolve on 401/403
+            $ok = $false
+            for ($attempt = 1; $attempt -le 3; $attempt++) {
+              Write-Host "Download attempt $attempt"
+              # Resolve again for each attempt to refresh tokens
+              try {
+                $response = Invoke-WebRequest -Uri $resolveUrl -Method Post -Headers $headers -Body $body -ContentType "application/json"
+                $resolved = $response.Content | ConvertFrom-Json
+              } catch {
+                $resolved = @{}
+              }
+              $sourceUrl = $resolved.sourceUrl
+              # Using cURL config file for headers (see $hdrCfg)
+              $httpCode = & curl -sSL -w '%{http_code}' -o "$tmpFile" -K "$hdrCfg" "$sourceUrl" 2>$null
+              if ($httpCode -eq "200" -or $httpCode -eq "206") {
+                $ok = $true
+                break
+              }
+              if ($httpCode -eq "401" -or $httpCode -eq "403" -or $httpCode -eq "0") {
+                Write-Host "Got $httpCode; will retry after re-resolve"
+                Start-Sleep -Seconds 2
+                continue
+              }
+              Write-Host "HTTP $httpCode not retryable"
+              break
+            }
+            
+            if (-not $ok) {
+              Write-Host "Download failed; rescheduling"
+              $rescheduleHeaders = @{
+                "x-admin-token" = $env:SB_ADMIN_TOKEN
+                "Content-Type" = "application/json"
+              }
+              $rescheduleBody = "{\"jobId\":\"$jobId\",\"tryCount\":$tryCount,\"reason\":\"download_failed\"}"
+              Invoke-WebRequest -Uri "$env:SB_FUNCTION_BASE_URL/reschedule" -Method Post -Headers $rescheduleHeaders -Body $rescheduleBody | Out-Null
+              Remove-Item $tmpFile -ErrorAction SilentlyContinue
+              Remove-Item $hdrCfg -ErrorAction SilentlyContinue
+              return
+            }
+            
+            # Upload to R2 via AWS CLI
+            $ts = [int](Get-Date -UFormat %s)
+            $key = "movies/${movieId}/${ts}.${ext}"
+            Write-Host "Uploading to r2://${env:R2_BUCKET}/${key}"
+            & aws s3 cp "$tmpFile" "s3://${env:R2_BUCKET}/${key}" --endpoint-url "$env:R2_S3_ENDPOINT"
+            Remove-Item $tmpFile -ErrorAction SilentlyContinue
+            $newUrl = "${env:R2_PUBLIC_BASE_URL}/${key}"
+            # Complete job
+            $completeHeaders = @{
+              "x-admin-token" = $env:SB_ADMIN_TOKEN
+              "Content-Type" = "application/json"
+            }
+            $completeBody = "{\"jobId\":\"$jobId\",\"movieId\":\"$movieId\",\"newUrl\":\"$newUrl\",\"publicId\":\"$key\",\"host\":\"r2\"}"
+            Invoke-WebRequest -Uri "$env:SB_FUNCTION_BASE_URL/complete" -Method Post -Headers $completeHeaders -Body $completeBody | Out-Null
+            Write-Host "Completed job $jobId -> $newUrl"
+            Remove-Item $hdrCfg -ErrorAction SilentlyContinue
+          }
+          
+          for ($i = 0; $i -lt $count; $i++) {
+            $job = $jobs[$i] | ConvertTo-Json -Depth 10
+            Process-Job -jobJson $job
+          }
