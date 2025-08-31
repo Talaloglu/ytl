@@ -35,16 +35,21 @@ jobs:
             exit 1
           fi
 
-      - name: Install jq and awscli
+      - name: Install dependencies
         shell: bash
         run: |
           set -euo pipefail
           sudo apt-get update -y
           sudo apt-get install -y jq curl unzip
-          # Install AWS CLI v2
+          
+      - name: Install AWS CLI v2
+        shell: bash
+        run: |
+          set -euo pipefail
           curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
-          unzip awscliv2.zip
-          sudo ./aws/install
+          unzip -q awscliv2.zip
+          sudo ./aws/install --update
+          rm -rf awscliv2.zip aws/
           aws --version
 
       - name: Lease jobs
