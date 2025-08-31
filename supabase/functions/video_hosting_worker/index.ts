@@ -233,35 +233,141 @@ async function handleEnqueue(req: Request) {
   }
 }
 
-// Resolve a fresh source URL and headers for a given job.
-// For now, if resolver_kind is null/empty, return stored source_url and headers_json.
-// Future: implement provider-specific resolvers using resolver_kind/resolver_payload.
+// Resolve fresh source URL and headers for a job with 403 error handling
 async function handleResolve(req: Request) {
   const body = (await req.json().catch(() => ({}))) as any;
-  const jobId = body?.jobId as string;
-  if (!jobId) return new Response(JSON.stringify({ error: "missing_jobId" }), { status: 400 });
-  const { data, error } = await supabase
+  const { job_id, jobId, resolver_kind, resolver_payload, try_count = 0 } = body;
+  const actualJobId = job_id || jobId; // Support both parameter names
+  
+  const { data: job, error } = await supabase
     .from("videos_sync_queue")
-    .select("id,movie_id,source_url,headers_json,resolver_kind,resolver_payload")
-    .eq("id", jobId)
-    .maybeSingle();
-  if (error) return new Response(JSON.stringify({ error: error.message }), { status: 500 });
-  if (!data) return new Response(JSON.stringify({ error: "job_not_found" }), { status: 404 });
-
-  const row = data as any;
-  const kind = (row.resolver_kind || "").toString();
-  if (!kind) {
-    return new Response(
-      JSON.stringify({
-        movieId: row.movie_id,
-        sourceUrl: row.source_url,
-        headers: row.headers_json || {},
-      }),
-      { status: 200 }
-    );
+    .select("source_url,headers_json,movie_id")
+    .eq("id", actualJobId)
+    .single();
+  
+  if (error || !job) {
+    return new Response(JSON.stringify({ error: "job_not_found" }), { status: 404 });
   }
-  // Placeholder for provider-specific resolvers
-  return new Response(JSON.stringify({ error: "resolver_not_implemented", resolver_kind: kind }), { status: 501 });
+  
+  const kind = resolver_kind ?? "static";
+  
+  // For fatv.vip URLs, try different strategies on 403 errors
+  if (job.source_url?.includes("fatv.vip")) {
+    return await resolveFatvUrl(job, try_count);
+  }
+  
+  // Default: return original URL with enhanced headers
+  return new Response(JSON.stringify({
+    sourceUrl: job.source_url,  // Match GitHub Actions script expectation
+    headers: {
+      "User-Agent": getRandomUserAgent(),
+      "Referer": extractDomain(job.source_url),
+      "Accept": "*/*",
+      "Accept-Language": "en-US,en;q=0.9",
+      "Cache-Control": "no-cache",
+      "Connection": "keep-alive",
+      ...(job.headers_json ?? {})
+    }
+  }), { status: 200 });
+}
+
+// Resolve Xtream-style URLs with 403 error handling strategies
+async function resolveFatvUrl(job: any, tryCount: number) {
+  const originalUrl = job.source_url;
+  const movieId = job.movie_id;
+  
+  // Strategy 1: Header rotation for basic 403 bypass
+  const userAgents = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "VLC/3.0.16 LibVLC/3.0.16",
+    "FFmpeg/4.4.2"
+  ];
+  
+  const referers = [
+    "https://fatv.vip/",
+    "https://www.fatv.vip/",
+    "https://fatv.vip/movie/",
+    "https://fatv.vip/watch/",
+    "" // No referer
+  ];
+  
+  const userAgent = userAgents[tryCount % userAgents.length];
+  const referer = referers[tryCount % referers.length];
+  
+  // Strategy 2: Check for updated URL in database (URL structure changed)
+  if (tryCount >= 2) {
+    const { data: movie } = await supabase
+      .from("movies")
+      .select("videourl")
+      .eq("id", movieId)
+      .single();
+    
+    if (movie?.videourl && movie.videourl !== originalUrl) {
+      // Database has newer URL - use it
+      return new Response(JSON.stringify({
+        sourceUrl: movie.videourl,  // Match GitHub Actions script expectation
+        headers: {
+          "User-Agent": userAgent,
+          "Referer": referer || undefined,
+          "Accept": "*/*",
+          "Accept-Language": "en-US,en;q=0.9"
+        }
+      }), { status: 200 });
+    }
+  }
+  
+  // Strategy 3: Try alternative domains/mirrors (if provider has them)
+  if (tryCount >= 4) {
+    const alternativeUrl = originalUrl.replace("1.fatv.vip", "2.fatv.vip")
+                                    .replace("http://", "https://");
+    
+    return new Response(JSON.stringify({
+      sourceUrl: alternativeUrl,  // Match GitHub Actions script expectation
+      headers: {
+        "User-Agent": userAgent,
+        "Referer": referer || undefined,
+        "Accept": "*/*",
+        "Accept-Language": "en-US,en;q=0.9"
+      }
+    }), { status: 200 });
+  }
+  
+  // Default: Original URL with rotating headers
+  const headers: any = {
+    "User-Agent": userAgent,
+    "Accept": "*/*",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Cache-Control": "no-cache",
+    "Connection": "keep-alive"
+  };
+  
+  if (referer) headers["Referer"] = referer;
+  
+  return new Response(JSON.stringify({
+    sourceUrl: originalUrl,  // Match GitHub Actions script expectation
+    headers
+  }), { status: 200 });
+}
+
+// Helper functions
+function getRandomUserAgent() {
+  const agents = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+  ];
+  return agents[Math.floor(Math.random() * agents.length)];
+}
+
+function extractDomain(url: string): string {
+  try {
+    const u = new URL(url);
+    return `${u.protocol}//${u.hostname}/`;
+  } catch {
+    return "https://fatv.vip/";
+  }
 }
 
 // Clear all jobs from the queue (for testing/reset)
@@ -269,6 +375,56 @@ async function handleClear(req: Request) {
   const { error } = await supabase.from("videos_sync_queue").delete().neq("id", "00000000-0000-0000-0000-000000000000");
   if (error) return new Response(JSON.stringify({ error: error.message }), { status: 500 });
   return new Response(JSON.stringify({ ok: true, cleared: true }), { status: 200 });
+}
+
+// Bulk enqueue all movies with videourl that need hosting
+async function handleBulkEnqueue(req: Request) {
+  const body = (await req.json().catch(() => ({}))) as any;
+  const limit = Math.min(Math.max(body?.limit ?? 1000, 1), 5000);
+  const { data, error } = await supabase
+    .from("movies")
+    .select("id,videourl,video_host")
+    .not("videourl", "is", null)
+    .neq("videourl", "")
+    .order("id", { ascending: true })
+    .limit(limit);
+  if (error) throw error;
+  
+  let enqueued = 0;
+  const nowIso = new Date().toISOString();
+  
+  for (const row of data ?? []) {
+    const r = row as any;
+    if (needsHosting(r.videourl, r.video_host)) {
+      // Check if already queued
+      const { data: existing } = await supabase
+        .from("videos_sync_queue")
+        .select("id")
+        .eq("movie_id", r.id)
+        .maybeSingle();
+      
+      if (!existing?.id) {
+        const { error: ierr } = await supabase.from("videos_sync_queue").insert({
+          movie_id: r.id,
+          source_url: r.videourl,
+          headers_json: {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+            "Referer": "https://fatv.vip/",
+            "Accept": "*/*",
+            "Accept-Language": "en-US,en;q=0.9"
+          },
+          resolver_kind: null,
+          resolver_payload: null,
+          reason: "bulk_unhosted",
+          try_count: 0,
+          next_try_at: nowIso,
+        });
+        if (!ierr) enqueued += 1;
+      }
+    }
+  }
+  
+  return new Response(JSON.stringify({ scanned: (data ?? []).length, enqueued }), { status: 200 });
 }
 
 Deno.serve(async (req) => {
@@ -285,5 +441,6 @@ Deno.serve(async (req) => {
   if (req.method === "POST" && url.pathname.endsWith("/reschedule")) return await handleReschedule(req);
   if (req.method === "POST" && url.pathname.endsWith("/resolve")) return await handleResolve(req);
   if (req.method === "POST" && url.pathname.endsWith("/clear")) return await handleClear(req);
+  if (req.method === "POST" && url.pathname.endsWith("/bulk-enqueue")) return await handleBulkEnqueue(req);
   return new Response("OK", { status: 200 });
 });
