@@ -264,6 +264,13 @@ async function handleResolve(req: Request) {
   return new Response(JSON.stringify({ error: "resolver_not_implemented", resolver_kind: kind }), { status: 501 });
 }
 
+// Clear all jobs from the queue (for testing/reset)
+async function handleClear(req: Request) {
+  const { error } = await supabase.from("videos_sync_queue").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+  if (error) return new Response(JSON.stringify({ error: error.message }), { status: 500 });
+  return new Response(JSON.stringify({ ok: true, cleared: true }), { status: 200 });
+}
+
 Deno.serve(async (req) => {
   const hdr = req.headers.get("x-admin-token") ?? "";
   const okAuth = ADMIN_TOKEN && hdr && hdr === ADMIN_TOKEN;
@@ -277,5 +284,6 @@ Deno.serve(async (req) => {
   if (req.method === "POST" && url.pathname.endsWith("/complete")) return await handleComplete(req);
   if (req.method === "POST" && url.pathname.endsWith("/reschedule")) return await handleReschedule(req);
   if (req.method === "POST" && url.pathname.endsWith("/resolve")) return await handleResolve(req);
+  if (req.method === "POST" && url.pathname.endsWith("/clear")) return await handleClear(req);
   return new Response("OK", { status: 200 });
 });
