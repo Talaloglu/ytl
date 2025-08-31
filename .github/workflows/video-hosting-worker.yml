@@ -101,16 +101,18 @@ jobs:
                 -H "x-admin-token: $SB_ADMIN_TOKEN" \
                 -H "Content-Type: application/json" \
                 -d "{\"jobId\":\"$jobId\",\"tryCount\":$tryCount,\"reason\":\"resolve_failed\"}" >/dev/null 2>&1 || true
+              rm -f "$hdrCfg" || true
               return 0
             fi
 
-            # Use fixed headers for Xtream format URLs
-            local headerFlags=(
-              "-H" "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-              "-H" "Referer: https://fatv.vip/"
-              "-H" "Accept: */*"
-              "-H" "Accept-Language: en-US,en;q=0.9"
-            )
+            # Prepare cURL header config to avoid quoting issues
+            local hdrCfg="headers.cfg"
+            printf '%s\n' \
+              'header = "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"' \
+              'header = "Referer: https://fatv.vip/"' \
+              'header = "Accept: */*"' \
+              'header = "Accept-Language: en-US,en;q=0.9"' \
+              > "$hdrCfg"
 
             # Temp file
             local ext="$(echo "$sourceUrl" | sed -E 's/.*\.(mp4|mkv)(\?.*)?$/\1/i')"
@@ -127,15 +129,9 @@ jobs:
                 -H "Content-Type: application/json" \
                 -d "{\"jobId\":\"$jobId\"}") || resolved='{}'
               sourceUrl=$(echo "$resolved" | jq -r '.sourceUrl // empty')
-              # Use simple fixed headers for Xtream URLs
-              local headerFlags=(
-                "-H" "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-                "-H" "Referer: https://fatv.vip/"
-                "-H" "Accept: */*"
-              )
+              # Using cURL config file for headers (see $hdrCfg)
 
-              httpCode=$(curl -sS -L --fail --show-error --write-out '%{http_code}' --output "$tmpFile" \
-                "${headerFlags[@]}" "$sourceUrl" || true)
+              httpCode=$(curl -sSL -w '%{http_code}' -o "$tmpFile" -K "$hdrCfg" "$sourceUrl" || true)
 
               if [[ "$httpCode" == "200" || "$httpCode" == "206" ]]; then
                 ok=1; break
@@ -156,6 +152,7 @@ jobs:
                 -H "Content-Type: application/json" \
                 -d "{\"jobId\":\"$jobId\",\"tryCount\":$tryCount,\"reason\":\"download_failed\"}" >/dev/null 2>&1 || true
               rm -f "$tmpFile" || true
+              rm -f "$hdrCfg" || true
               return 0
             fi
 
@@ -174,6 +171,7 @@ jobs:
               -d "{\"jobId\":\"$jobId\",\"movieId\":\"$movieId\",\"newUrl\":\"$newUrl\",\"publicId\":\"$key\",\"host\":\"r2\"}" >/dev/null
 
             echo "Completed job $jobId -> $newUrl"
+            rm -f "$hdrCfg" || true
           }
 
           for i in $(seq 0 $((COUNT-1))); do
