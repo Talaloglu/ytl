@@ -3,10 +3,9 @@ package com.movieapp.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.movieapp.data.model.Movie
-import com.movieapp.data.model.MoviesList
 import com.movieapp.data.model.MovieDetails
 import com.movieapp.data.model.Genre
-import com.movieapp.data.repository.MovieRepository
+import com.movieapp.data.repository.SupabaseMovieRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -14,11 +13,13 @@ import kotlinx.coroutines.launch
 
 /**
  * ViewModel for managing movie data and UI state
- * Follows MVVM architecture pattern
+ * Uses Supabase-first approach with CombinedMovieRepository
+ * All movie data comes from Supabase (which contains TMDB metadata)
  */
 class MovieViewModel : ViewModel() {
     
-    private val repository = MovieRepository()
+    // Repository for movie data - Direct Supabase access
+    private val repository = SupabaseMovieRepository()
     
     // UI State for popular movies
     private val _popularMovies = MutableStateFlow<List<Movie>>(emptyList())
@@ -57,7 +58,7 @@ class MovieViewModel : ViewModel() {
     val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
     
     /**
-     * Fetch popular movies from the API
+     * Fetch popular movies from Supabase (TMDB metadata-rich content)
      */
     fun fetchPopularMovies() {
         viewModelScope.launch {
@@ -65,11 +66,12 @@ class MovieViewModel : ViewModel() {
             _errorMessage.value = null
             
             try {
-                val response = repository.getPopularMovies()
-                if (response.isSuccessful) {
-                    _popularMovies.value = response.body()?.results ?: emptyList()
+                val result = repository.getPopularMovies(page = 1)
+                
+                if (result.isSuccess) {
+                    _popularMovies.value = result.getOrNull() ?: emptyList()
                 } else {
-                    _errorMessage.value = "Failed to fetch popular movies: ${response.message()}"
+                    _errorMessage.value = "Failed to load popular movies from Supabase"
                 }
             } catch (e: Exception) {
                 _errorMessage.value = "Error: ${e.message}"
@@ -80,7 +82,7 @@ class MovieViewModel : ViewModel() {
     }
     
     /**
-     * Fetch top rated movies from the API
+     * Fetch top rated movies from Supabase (TMDB metadata-rich content)
      */
     fun fetchTopRatedMovies() {
         viewModelScope.launch {
@@ -88,11 +90,12 @@ class MovieViewModel : ViewModel() {
             _errorMessage.value = null
             
             try {
-                val response = repository.getTopRatedMovies()
-                if (response.isSuccessful) {
-                    _topRatedMovies.value = response.body()?.results ?: emptyList()
+                val result = repository.getTopRatedMovies(page = 1)
+                
+                if (result.isSuccess) {
+                    _topRatedMovies.value = result.getOrNull() ?: emptyList()
                 } else {
-                    _errorMessage.value = "Failed to fetch top rated movies: ${response.message()}"
+                    _errorMessage.value = "Failed to load top rated movies from Supabase"
                 }
             } catch (e: Exception) {
                 _errorMessage.value = "Error: ${e.message}"
@@ -103,7 +106,8 @@ class MovieViewModel : ViewModel() {
     }
     
     /**
-     * Fetch now playing movies from the API
+     * Fetch now playing movies from Supabase (TMDB metadata-rich content)
+     * Filters for recent movies from the last year
      */
     fun fetchNowPlayingMovies() {
         viewModelScope.launch {
@@ -111,11 +115,22 @@ class MovieViewModel : ViewModel() {
             _errorMessage.value = null
             
             try {
-                val response = repository.getNowPlayingMovies()
-                if (response.isSuccessful) {
-                    _nowPlayingMovies.value = response.body()?.results ?: emptyList()
+                // Get all movies and filter recent ones
+                val result = repository.getAllMovies()
+                
+                if (result.isSuccess) {
+                    val currentYear = java.util.Calendar.getInstance().get(java.util.Calendar.YEAR)
+                    val recentMovies = result.getOrNull()
+                        ?.filter { movie ->
+                            val year = movie.releaseDate.take(4).toIntOrNull() ?: 0
+                            year >= currentYear - 1 // Movies from last year and this year
+                        }
+                        ?.sortedByDescending { it.releaseDate }
+                        ?.take(20)
+                    
+                    _nowPlayingMovies.value = recentMovies ?: emptyList()
                 } else {
-                    _errorMessage.value = "Failed to fetch now playing movies: ${response.message()}"
+                    _errorMessage.value = "Failed to load now playing movies from Supabase"
                 }
             } catch (e: Exception) {
                 _errorMessage.value = "Error: ${e.message}"
@@ -126,7 +141,8 @@ class MovieViewModel : ViewModel() {
     }
     
     /**
-     * Fetch upcoming movies from the API
+     * Fetch upcoming movies from Supabase (TMDB metadata-rich content)
+     * Sorts by release date (newest first)
      */
     fun fetchUpcomingMovies() {
         viewModelScope.launch {
@@ -134,11 +150,17 @@ class MovieViewModel : ViewModel() {
             _errorMessage.value = null
             
             try {
-                val response = repository.getUpcomingMovies()
-                if (response.isSuccessful) {
-                    _upcomingMovies.value = response.body()?.results ?: emptyList()
+                // Get all movies and sort by release date
+                val result = repository.getAllMovies()
+                
+                if (result.isSuccess) {
+                    val upcomingMovies = result.getOrNull()
+                        ?.sortedByDescending { it.releaseDate }
+                        ?.take(20)
+                    
+                    _upcomingMovies.value = upcomingMovies ?: emptyList()
                 } else {
-                    _errorMessage.value = "Failed to fetch upcoming movies: ${response.message()}"
+                    _errorMessage.value = "Failed to load upcoming movies from Supabase"
                 }
             } catch (e: Exception) {
                 _errorMessage.value = "Error: ${e.message}"
@@ -149,7 +171,8 @@ class MovieViewModel : ViewModel() {
     }
     
     /**
-     * Fetch movie details by ID using the new MovieDetails model
+     * Fetch movie details by ID
+     * Note: This still uses the old approach - consider updating to fetch from Supabase
      * @param movieId The ID of the movie to fetch
      */
     fun fetchMovieDetails(movieId: Int) {
@@ -158,11 +181,45 @@ class MovieViewModel : ViewModel() {
             _errorMessage.value = null
             
             try {
-                val response = repository.getDetailsById(movieId)
-                if (response.isSuccessful) {
-                    _movieDetails.value = response.body()
+                // Get from all movies
+                val result = repository.getAllMovies()
+                
+                if (result.isSuccess) {
+                    val movie = result.getOrNull()?.find { it.id == movieId }
+                    
+                    if (movie != null) {
+                        // Convert Movie to MovieDetails
+                        _movieDetails.value = MovieDetails(
+                            id = movie.id,
+                            title = movie.title,
+                            overview = movie.overview,
+                            posterPath = movie.posterPath,
+                            backdropPath = movie.backdropPath,
+                            releaseDate = movie.releaseDate,
+                            voteAverage = movie.voteAverage,
+                            voteCount = movie.voteCount,
+                            runtime = 0,
+                            genres = emptyList(),
+                            productionCompanies = emptyList(),
+                            productionCountries = emptyList(),
+                            spokenLanguages = emptyList(),
+                            budget = 0,
+                            revenue = 0,
+                            status = "",
+                            tagline = "",
+                            homepage = "",
+                            imdbId = "",
+                            originalLanguage = movie.originalLanguage,
+                            originalTitle = movie.originalTitle,
+                            popularity = movie.popularity,
+                            video = movie.video,
+                            adult = movie.adult
+                        )
+                    } else {
+                        _errorMessage.value = "Movie not found in database"
+                    }
                 } else {
-                    _errorMessage.value = "Failed to fetch movie details: ${response.message()}"
+                    _errorMessage.value = "Failed to fetch movie details from Supabase"
                 }
             } catch (e: Exception) {
                 _errorMessage.value = "Error: ${e.message}"
@@ -174,6 +231,7 @@ class MovieViewModel : ViewModel() {
     
     /**
      * Fetch movie genres list
+     * Note: Consider getting genres from Supabase metadata
      */
     fun fetchGenres() {
         viewModelScope.launch {
@@ -181,11 +239,19 @@ class MovieViewModel : ViewModel() {
             _errorMessage.value = null
             
             try {
-                val response = repository.getGenres()
-                if (response.isSuccessful) {
-                    _genres.value = response.body()?.genres ?: emptyList()
+                // Extract unique genres from all movies
+                val result = repository.getAllMovies()
+                
+                if (result.isSuccess) {
+                    val allMovies = result.getOrNull() ?: emptyList()
+                    val genreIds = allMovies.flatMap { it.genreIds }.distinct()
+                    
+                    // Create basic Genre objects (would be better to have a genre name mapping)
+                    _genres.value = genreIds.map { id ->
+                        Genre(id = id, name = "Genre $id") // Placeholder names
+                    }
                 } else {
-                    _errorMessage.value = "Failed to fetch genres: ${response.message()}"
+                    _errorMessage.value = "Failed to fetch genres from Supabase"
                 }
             } catch (e: Exception) {
                 _errorMessage.value = "Error: ${e.message}"
@@ -196,7 +262,7 @@ class MovieViewModel : ViewModel() {
     }
     
     /**
-     * Fetch movies by genre
+     * Fetch movies by genre from Supabase
      * @param genreId The genre ID to filter by
      * @param page The page number for pagination
      */
@@ -206,11 +272,12 @@ class MovieViewModel : ViewModel() {
             _errorMessage.value = null
             
             try {
-                val response = repository.getMoviesByGenre(genreId, page)
-                if (response.isSuccessful) {
-                    _searchResults.value = response.body()?.results ?: emptyList()
+                val result = repository.getMoviesByGenre(genreId, page)
+                
+                if (result.isSuccess) {
+                    _searchResults.value = result.getOrNull() ?: emptyList()
                 } else {
-                    _errorMessage.value = "Failed to fetch movies by genre: ${response.message()}"
+                    _errorMessage.value = "Failed to fetch movies by genre from Supabase"
                 }
             } catch (e: Exception) {
                 _errorMessage.value = "Error: ${e.message}"
@@ -222,6 +289,7 @@ class MovieViewModel : ViewModel() {
     
     /**
      * Fetch similar movies for a given movie ID
+     * Note: Uses genre-based similarity from Supabase
      * @param movieId The movie ID to find similar movies for
      * @param page The page number for pagination
      */
@@ -231,14 +299,32 @@ class MovieViewModel : ViewModel() {
             _errorMessage.value = null
             
             try {
-                val response = repository.getSimilarMovies(movieId, page)
-                if (response.isSuccessful) {
-                    _searchResults.value = response.body()?.results ?: emptyList()
+                // Get the movie's genres, then fetch movies with same genres
+                val result = repository.getAllMovies()
+                
+                if (result.isSuccess) {
+                    val allMovies = result.getOrNull() ?: emptyList()
+                    val targetMovie = allMovies.find { it.id == movieId }
+                    
+                    if (targetMovie != null) {
+                        val similarMovies = allMovies
+                            .filter { movie ->
+                                movie.id != movieId && // Exclude the target movie
+                                movie.genreIds.any { it in targetMovie.genreIds }
+                            }
+                            .sortedByDescending { it.popularity }
+                            .take(20)
+                        
+                        _searchResults.value = similarMovies
+                    } else {
+                        _searchResults.value = emptyList()
+                    }
                 } else {
-                    _errorMessage.value = "Failed to fetch similar movies: ${response.message()}"
+                    _errorMessage.value = "Failed to fetch similar movies from Supabase"
                 }
             } catch (e: Exception) {
                 _errorMessage.value = "Error: ${e.message}"
+                _searchResults.value = emptyList()
             } finally {
                 _isLoading.value = false
             }
@@ -246,7 +332,7 @@ class MovieViewModel : ViewModel() {
     }
     
     /**
-     * Search movies by query
+     * Search movies by query in Supabase (TMDB metadata-rich content)
      * @param query The search query
      */
     fun searchMovies(query: String) {
@@ -260,14 +346,27 @@ class MovieViewModel : ViewModel() {
             _errorMessage.value = null
             
             try {
-                val response = repository.searchMovies(query)
-                if (response.isSuccessful) {
-                    _searchResults.value = response.body()?.results ?: emptyList()
+                // Get all movies and filter by title
+                val result = repository.getAllMovies()
+                
+                if (result.isSuccess) {
+                    val queryLower = query.lowercase()
+                    val searchResults = result.getOrNull()
+                        ?.filter { movie ->
+                            movie.title.lowercase().contains(queryLower) ||
+                            movie.originalTitle.lowercase().contains(queryLower)
+                        }
+                        ?.sortedByDescending { it.popularity }
+                        ?.take(50)
+                    
+                    _searchResults.value = searchResults ?: emptyList()
                 } else {
-                    _errorMessage.value = "Failed to search movies: ${response.message()}"
+                    _errorMessage.value = "Failed to search movies in Supabase"
+                    _searchResults.value = emptyList()
                 }
             } catch (e: Exception) {
                 _errorMessage.value = "Error: ${e.message}"
+                _searchResults.value = emptyList()
             } finally {
                 _isLoading.value = false
             }

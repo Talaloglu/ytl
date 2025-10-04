@@ -1,0 +1,415 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 4,
+    "identityHash": "d76c37ada58996566770e5d8c9a0ddb6",
+    "entities": [
+      {
+        "tableName": "cached_movies",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`tmdbId` INTEGER NOT NULL, `title` TEXT NOT NULL, `hasVideo` INTEGER NOT NULL, `combinedJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`tmdbId`))",
+        "fields": [
+          {
+            "fieldPath": "tmdbId",
+            "columnName": "tmdbId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "hasVideo",
+            "columnName": "hasVideo",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "combinedJson",
+            "columnName": "combinedJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "tmdbId"
+          ]
+        },
+        "indices": [],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "user_profile",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`userId` TEXT NOT NULL, `email` TEXT NOT NULL, `displayName` TEXT, `avatarUrl` TEXT, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`userId`))",
+        "fields": [
+          {
+            "fieldPath": "userId",
+            "columnName": "userId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "email",
+            "columnName": "email",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "displayName",
+            "columnName": "displayName",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "avatarUrl",
+            "columnName": "avatarUrl",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "userId"
+          ]
+        },
+        "indices": [],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "watchlist_cache",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`userId` TEXT NOT NULL, `movieId` INTEGER NOT NULL, `addedAt` INTEGER NOT NULL, `syncedAt` INTEGER NOT NULL, `needsSync` INTEGER NOT NULL, PRIMARY KEY(`userId`, `movieId`))",
+        "fields": [
+          {
+            "fieldPath": "userId",
+            "columnName": "userId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "movieId",
+            "columnName": "movieId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "addedAt",
+            "columnName": "addedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "syncedAt",
+            "columnName": "syncedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "needsSync",
+            "columnName": "needsSync",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "userId",
+            "movieId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_watchlist_cache_userId",
+            "unique": false,
+            "columnNames": [
+              "userId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_watchlist_cache_userId` ON `${TABLE_NAME}` (`userId`)"
+          },
+          {
+            "name": "index_watchlist_cache_movieId",
+            "unique": false,
+            "columnNames": [
+              "movieId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_watchlist_cache_movieId` ON `${TABLE_NAME}` (`movieId`)"
+          },
+          {
+            "name": "index_watchlist_cache_addedAt",
+            "unique": false,
+            "columnNames": [
+              "addedAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_watchlist_cache_addedAt` ON `${TABLE_NAME}` (`addedAt`)"
+          },
+          {
+            "name": "index_watchlist_cache_needsSync",
+            "unique": false,
+            "columnNames": [
+              "needsSync"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_watchlist_cache_needsSync` ON `${TABLE_NAME}` (`needsSync`)"
+          }
+        ],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "watch_progress_cache",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`userId` TEXT NOT NULL, `movieId` INTEGER NOT NULL, `currentPositionMs` INTEGER NOT NULL, `durationMs` INTEGER NOT NULL, `watchPercentage` REAL NOT NULL, `lastUpdatedAt` INTEGER NOT NULL, `isCompleted` INTEGER NOT NULL, `syncedAt` INTEGER NOT NULL, `needsSync` INTEGER NOT NULL, PRIMARY KEY(`userId`, `movieId`))",
+        "fields": [
+          {
+            "fieldPath": "userId",
+            "columnName": "userId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "movieId",
+            "columnName": "movieId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "currentPositionMs",
+            "columnName": "currentPositionMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "durationMs",
+            "columnName": "durationMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "watchPercentage",
+            "columnName": "watchPercentage",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastUpdatedAt",
+            "columnName": "lastUpdatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isCompleted",
+            "columnName": "isCompleted",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "syncedAt",
+            "columnName": "syncedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "needsSync",
+            "columnName": "needsSync",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "userId",
+            "movieId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_watch_progress_cache_userId",
+            "unique": false,
+            "columnNames": [
+              "userId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_watch_progress_cache_userId` ON `${TABLE_NAME}` (`userId`)"
+          },
+          {
+            "name": "index_watch_progress_cache_movieId",
+            "unique": false,
+            "columnNames": [
+              "movieId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_watch_progress_cache_movieId` ON `${TABLE_NAME}` (`movieId`)"
+          },
+          {
+            "name": "index_watch_progress_cache_lastUpdatedAt",
+            "unique": false,
+            "columnNames": [
+              "lastUpdatedAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_watch_progress_cache_lastUpdatedAt` ON `${TABLE_NAME}` (`lastUpdatedAt`)"
+          },
+          {
+            "name": "index_watch_progress_cache_needsSync",
+            "unique": false,
+            "columnNames": [
+              "needsSync"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_watch_progress_cache_needsSync` ON `${TABLE_NAME}` (`needsSync`)"
+          },
+          {
+            "name": "index_watch_progress_cache_isCompleted",
+            "unique": false,
+            "columnNames": [
+              "isCompleted"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_watch_progress_cache_isCompleted` ON `${TABLE_NAME}` (`isCompleted`)"
+          }
+        ],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "viewing_history_cache",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `userId` TEXT NOT NULL, `movieId` INTEGER NOT NULL, `viewedAt` INTEGER NOT NULL, `viewDurationMs` INTEGER NOT NULL, `completedView` INTEGER NOT NULL, `syncedAt` INTEGER NOT NULL, `needsSync` INTEGER NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "userId",
+            "columnName": "userId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "movieId",
+            "columnName": "movieId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "viewedAt",
+            "columnName": "viewedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "viewDurationMs",
+            "columnName": "viewDurationMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "completedView",
+            "columnName": "completedView",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "syncedAt",
+            "columnName": "syncedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "needsSync",
+            "columnName": "needsSync",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_viewing_history_cache_userId",
+            "unique": false,
+            "columnNames": [
+              "userId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_viewing_history_cache_userId` ON `${TABLE_NAME}` (`userId`)"
+          },
+          {
+            "name": "index_viewing_history_cache_movieId",
+            "unique": false,
+            "columnNames": [
+              "movieId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_viewing_history_cache_movieId` ON `${TABLE_NAME}` (`movieId`)"
+          },
+          {
+            "name": "index_viewing_history_cache_viewedAt",
+            "unique": false,
+            "columnNames": [
+              "viewedAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_viewing_history_cache_viewedAt` ON `${TABLE_NAME}` (`viewedAt`)"
+          },
+          {
+            "name": "index_viewing_history_cache_needsSync",
+            "unique": false,
+            "columnNames": [
+              "needsSync"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_viewing_history_cache_needsSync` ON `${TABLE_NAME}` (`needsSync`)"
+          },
+          {
+            "name": "index_viewing_history_cache_userId_movieId_viewedAt",
+            "unique": false,
+            "columnNames": [
+              "userId",
+              "movieId",
+              "viewedAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_viewing_history_cache_userId_movieId_viewedAt` ON `${TABLE_NAME}` (`userId`, `movieId`, `viewedAt`)"
+          }
+        ],
+        "foreignKeys": []
+      }
+    ],
+    "views": [],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'd76c37ada58996566770e5d8c9a0ddb6')"
+    ]
+  }
+}

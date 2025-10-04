@@ -2,69 +2,113 @@ package com.movieapp.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.movieapp.data.repository.SupabaseAuthRepository
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.asStateFlow
+import com.movieapp.data.auth.AuthRepository
+import com.movieapp.data.auth.AuthState
+import com.movieapp.data.repository.UserProfileRepository
+import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
-import io.github.jan.supabase.gotrue.auth
-import io.github.jan.supabase.gotrue.providers.builtin.Email
-import kotlinx.coroutines.flow.update
 
-class AuthViewModel(
-    private val authRepository: SupabaseAuthRepository
-) : ViewModel() {
-
-    // Internal mutable state flow
-    private val _authState = MutableStateFlow<AuthState>(AuthState.Idle)
-    // Publicly exposed read-only state flow for the UI to observe
-    val authState = _authState.asStateFlow()
-
-    // Sealed interface to represent the different states of the authentication UI
-    sealed interface AuthState {
-        object Idle : AuthState
-        object Loading : AuthState
-        object Success : AuthState
-        data class Error(val message: String) : AuthState
-    }
-
+/**
+ * ViewModel for handling authentication operations
+ * Updated to match decompiled version structure
+ */
+class AuthViewModel : ViewModel() {
+    
+    // Initialize repositories
+    private val userProfileRepository = UserProfileRepository()
+    private val authRepository = AuthRepository(userProfileRepository)
+    
+    // Observe auth state from repository
+    val authState: StateFlow<AuthState> = authRepository.observeAuthState()
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = AuthState.Idle
+        )
+    
+    // Action results (for one-time events like success/error messages)
+    private val _actionResult = MutableStateFlow<AuthState?>(null)
+    val actionResult: StateFlow<AuthState?> = _actionResult.asStateFlow()
+    
     /**
-     * Signs in a user with the provided email and password.
-     * Updates the authState flow to reflect loading, success, or error states.
+     * Sign in with email and password
      */
     fun signIn(email: String, password: String) {
         viewModelScope.launch {
-            _authState.value = AuthState.Loading
-            try {
-                authRepository.signIn(email, password)
-                _authState.value = AuthState.Success
-            } catch (e: Exception) {
-                _authState.value = AuthState.Error(e.message ?: "An unknown error occurred")
-            }
-        }
-    }
-
-    /**
-     * Signs up a new user with the provided email and password.
-     * Updates the authState flow to reflect loading, success, or error states.
-     */
-    fun signUp(email: String, password: String) {
-        viewModelScope.launch {
-            _authState.value = AuthState.Loading
-            try {
-                authRepository.signUp(email, password)
-                _authState.value = AuthState.Success
-            } catch (e: Exception) {
-                _authState.value = AuthState.Error(e.message ?: "An unknown error occurred")
-            }
+            val result = authRepository.signIn(email, password)
+            _actionResult.value = result
         }
     }
     
     /**
-     * Resets the authentication state to Idle.
-     * Useful for clearing a previous error or success message when the user
-     * navigates away or dismisses a message.
+     * Sign up with email and password
      */
-    fun resetAuthState() {
-        _authState.value = AuthState.Idle
+    fun signUp(email: String, password: String) {
+        viewModelScope.launch {
+            val result = authRepository.signUp(email, password)
+            _actionResult.value = result
+        }
     }
+    
+    /**
+     * Sign out the current user
+     */
+    fun signOut() {
+        viewModelScope.launch {
+            val result = authRepository.signOut()
+            _actionResult.value = result
+        }
+    }
+    
+    /**
+     * Reset password for email
+     */
+    fun resetPassword(email: String) {
+        viewModelScope.launch {
+            val result = authRepository.resetPassword(email)
+            _actionResult.value = result
+        }
+    }
+    
+    /**
+     * Update user password
+     */
+    fun updatePassword(newPassword: String) {
+        viewModelScope.launch {
+            val result = authRepository.updatePassword(newPassword)
+            _actionResult.value = result
+        }
+    }
+    
+    /**
+     * Update user email
+     */
+    fun updateEmail(newEmail: String) {
+        viewModelScope.launch {
+            val result = authRepository.updateEmail(newEmail)
+            _actionResult.value = result
+        }
+    }
+    
+    /**
+     * Clear action result (after showing message)
+     */
+    fun clearActionResult() {
+        _actionResult.value = null
+    }
+    
+    /**
+     * Check if user is authenticated
+     */
+    fun isAuthenticated(): Boolean {
+        return authRepository.isAuthenticated()
+    }
+    
+    /**
+     * Get current user ID
+     */
+    fun getCurrentUserId(): String? {
+        return authRepository.getCurrentUserId()
+    }
+    
 }

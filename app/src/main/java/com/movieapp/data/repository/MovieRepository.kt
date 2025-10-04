@@ -12,13 +12,21 @@ import retrofit2.Response
  * Provides clean interface between ViewModels and API service
  * Acts as single source of truth for data operations
  * Note: This is the data layer repository - separate from viewmodel.Repository
+ * 
+ * @deprecated This repository is deprecated in favor of CombinedMovieRepository.
+ * TMDB direct access is disabled in Supabase-first mode.
+ * Use CombinedMovieRepository for all movie operations.
  */
+@Deprecated(
+    message = "Use CombinedMovieRepository instead. TMDB direct access is disabled.",
+    replaceWith = ReplaceWith("CombinedMovieRepository", "com.movieapp.data.repository.CombinedMovieRepository"),
+    level = DeprecationLevel.WARNING
+)
 class MovieRepository {
     
     private val apiInterface: ApiInterface = RetrofitInstance.apiInterface
     
     // TMDB disabled in Supabase-first mode
-    private val apiKey = "TMDB_DISABLED_IN_SUPABASE_FIRST_MODE"
     
     /**
      * Get movies with pagination support as specified
@@ -36,8 +44,8 @@ class MovieRepository {
      * @return Response containing MoviesList with popular movies
      */
     suspend fun getPopularMovies(page: Int = 1): Response<MoviesList> {
-        println("⛔ TMDB getPopularMovies disabled (Supabase-first). Use Supabase repositories.")
-        throw UnsupportedOperationException("TMDB getPopularMovies disabled in Supabase-first mode")
+        println("⛔ TMDB getPopularMovies disabled (Supabase-first). Use CombinedMovieRepository.")
+        throw UnsupportedOperationException("Use CombinedMovieRepository instead")
     }
     
     /**
@@ -46,8 +54,8 @@ class MovieRepository {
      * @return Response containing MoviesList with top rated movies
      */
     suspend fun getTopRatedMovies(page: Int = 1): Response<MoviesList> {
-        println("⛔ TMDB getTopRatedMovies disabled (Supabase-first). Use Supabase repositories.")
-        throw UnsupportedOperationException("TMDB getTopRatedMovies disabled in Supabase-first mode")
+        println("⛔ TMDB getTopRatedMovies disabled (Supabase-first). Use CombinedMovieRepository.")
+        throw UnsupportedOperationException("Use CombinedMovieRepository instead")
     }
     
     /**
@@ -56,8 +64,8 @@ class MovieRepository {
      * @return Response containing MoviesList with now playing movies
      */
     suspend fun getNowPlayingMovies(page: Int = 1): Response<MoviesList> {
-        println("⛔ TMDB getNowPlayingMovies disabled (Supabase-first). Use Supabase repositories.")
-        throw UnsupportedOperationException("TMDB getNowPlayingMovies disabled in Supabase-first mode")
+        println("⛔ TMDB getNowPlayingMovies disabled (Supabase-first). Use CombinedMovieRepository.")
+        throw UnsupportedOperationException("Use CombinedMovieRepository instead")
     }
     
     /**
@@ -66,8 +74,8 @@ class MovieRepository {
      * @return Response containing MoviesList with upcoming movies
      */
     suspend fun getUpcomingMovies(page: Int = 1): Response<MoviesList> {
-        println("⛔ TMDB getUpcomingMovies disabled (Supabase-first). Use Supabase repositories.")
-        throw UnsupportedOperationException("TMDB getUpcomingMovies disabled in Supabase-first mode")
+        println("⛔ TMDB getUpcomingMovies disabled (Supabase-first). Use CombinedMovieRepository.")
+        throw UnsupportedOperationException("Use CombinedMovieRepository instead")
     }
     
     /**
@@ -88,8 +96,8 @@ class MovieRepository {
      * @return Response containing MoviesList with search results
      */
     suspend fun searchMovies(query: String, page: Int = 1): Response<MoviesList> {
-        println("⛔ TMDB searchMovies disabled (Supabase-first). Use Supabase search.")
-        throw UnsupportedOperationException("TMDB searchMovies disabled in Supabase-first mode")
+        println("⛔ TMDB searchMovies disabled (Supabase-first). Use CombinedMovieRepository.")
+        throw UnsupportedOperationException("Use CombinedMovieRepository instead")
     }
     
     /**

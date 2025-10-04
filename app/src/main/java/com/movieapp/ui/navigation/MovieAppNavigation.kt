@@ -7,12 +7,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import androidx.navigation.NavType
-import com.movieapp.ui.screens.BannerScreen
-import com.movieapp.ui.screens.StreamingHomeScreen
-import com.movieapp.ui.screens.MoviePlayerScreen
-import com.movieapp.ui.screens.DetailsScreen
-import com.movieapp.ui.screens.CategorizedHomeScreen
-import com.movieapp.ui.screens.CategoryDetailScreen
+import com.movieapp.ui.screens.*
 
 /**
  * Navigation routes for the movie app
@@ -25,6 +20,9 @@ object MovieAppRoutes {
     const val DETAILS = "details/{movieId}"
     const val MOVIE_PLAYER = "movie_player/{movieId}"
     const val CATEGORY_DETAIL = "category_detail/{categoryType}/{categoryTitle}"
+    const val SETTINGS = "settings"
+    const val SUBTITLE_CONFIG = "subtitle_config"
+    const val SEARCH = "search"
     
     /**
      * Create details route with movie ID
@@ -53,6 +51,24 @@ object MovieAppRoutes {
     fun createCategoryDetailRoute(categoryType: String, categoryTitle: String): String {
         return "category_detail/$categoryType/$categoryTitle"
     }
+    
+    /**
+     * Navigate to settings screen
+     * @return Settings route
+     */
+    fun navigateToSettings(): String = SETTINGS
+    
+    /**
+     * Navigate to subtitle configuration screen
+     * @return Subtitle config route
+     */
+    fun navigateToSubtitleConfig(): String = SUBTITLE_CONFIG
+    
+    /**
+     * Navigate to search screen
+     * @return Search route
+     */
+    fun navigateToSearch(): String = SEARCH
     
     /**
      * Extract movie ID from details route
@@ -86,14 +102,21 @@ fun MovieAppNavigation(
         composable(route = MovieAppRoutes.BANNER) {
             BannerScreen(
                 onExploreMoviesClick = {
-                    // Navigate to categorized home screen when explore button is clicked
-                    navController.navigate(MovieAppRoutes.CATEGORIZED_HOME) {
+                    // Navigate to main container with bottom navigation
+                    navController.navigate("main") {
                         // Clear banner from back stack to prevent returning to it
                         popUpTo(MovieAppRoutes.BANNER) {
                             inclusive = true
                         }
                     }
                 }
+            )
+        }
+        
+        // Main Container with Bottom Navigation (NEW - Phase 4)
+        composable(route = "main") {
+            MainContainerScreen(
+                mainNavController = navController
             )
         }
         
@@ -155,7 +178,7 @@ fun MovieAppNavigation(
             }
         }
         
-        // Movie Player Screen - For streaming videos
+        // Enhanced Video Player Screen (NEW - Phase 4)
         composable(
             route = MovieAppRoutes.MOVIE_PLAYER,
             arguments = listOf(
@@ -170,7 +193,7 @@ fun MovieAppNavigation(
             
             // Validate movie ID before proceeding
             if (movieId > 0) {
-                MoviePlayerScreen(
+                EnhancedVideoPlayerScreen(
                     movieId = movieId,
                     onBackClick = {
                         // Navigate back to previous screen
@@ -185,7 +208,7 @@ fun MovieAppNavigation(
             }
         }
         
-        // Category Detail Screen - For showing full category lists
+        // Optimized Category Screen (NEW - Phase 4)
         composable(
             route = MovieAppRoutes.CATEGORY_DETAIL,
             arguments = listOf(
@@ -205,7 +228,7 @@ fun MovieAppNavigation(
             
             // Validate parameters before proceeding
             if (categoryType.isNotEmpty() && categoryTitle.isNotEmpty()) {
-                CategoryDetailScreen(
+                OptimizedCategoryScreen(
                     categoryType = categoryType,
                     categoryTitle = categoryTitle,
                     onBackClick = {
@@ -223,6 +246,24 @@ fun MovieAppNavigation(
                     navController.popBackStack()
                 }
             }
+        }
+        
+        // Settings Screen (Phase 3)
+        composable(route = MovieAppRoutes.SETTINGS) {
+            SettingsScreen(
+                onBack = {
+                    navController.popBackStack()
+                }
+            )
+        }
+        
+        // Subtitle Configuration Screen (Phase 3)
+        composable(route = MovieAppRoutes.SUBTITLE_CONFIG) {
+            SubtitleConfigurationScreen(
+                onBack = {
+                    navController.popBackStack()
+                }
+            )
         }
     }
 }

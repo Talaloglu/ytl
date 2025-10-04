@@ -1,0 +1,219 @@
+package com.movieapp.viewmodel
+
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.movieapp.data.model.Movie
+import com.movieapp.data.model.MoviesList
+import com.movieapp.data.model.MovieDetails
+import com.movieapp.data.model.Genre
+import com.movieapp.data.repository.MovieRepository
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+/**
+ * ViewModel for managing movie data and UI state
+ * Follows MVVM architecture pattern
+ */
+class MovieViewModel : ViewModel() {
+    
+    // Repository for movie data - Using Supabase-first approach
+    private val repository = CombinedMovieRepository()
+    
+    // UI State for popular movies
+    private val _popularMovies = MutableStateFlow<List<Movie>>(emptyList())
+    val popularMovies: StateFlow<List<Movie>> = _popularMovies.asStateFlow()
+    
+
+    // UI State for top rated movies
+    private val _topRatedMovies = MutableStateFlow<List<Movie>>(emptyList())
+    val topRatedMovies: StateFlow<List<Movie>> = _topRatedMovies.asStateFlow()
+    
+    // UI State for now playing movies
+    private val _nowPlayingMovies = MutableStateFlow<List<Movie>>(emptyList())
+    val nowPlayingMovies: StateFlow<List<Movie>> = _nowPlayingMovies.asStateFlow()
+    
+    // UI State for upcoming movies
+    private val _upcomingMovies = MutableStateFlow<List<Movie>>(emptyList())
+    val upcomingMovies: StateFlow<List<Movie>> = _upcomingMovies.asStateFlow()
+    
+    // UI State for search results
+    private val _searchResults = MutableStateFlow<List<Movie>>(emptyList())
+    val searchResults: StateFlow<List<Movie>> = _searchResults.asStateFlow()
+    
+    // UI State for movie details
+    private val _movieDetails = MutableStateFlow<MovieDetails?>(null)
+    val movieDetails: StateFlow<MovieDetails?> = _movieDetails.asStateFlow()
+    
+    // UI State for genres
+    private val _genres = MutableStateFlow<List<Genre>>(emptyList())
+    val genres: StateFlow<List<Genre>> = _genres.asStateFlow()
+    
+    // Loading state
+    private val _isLoading = MutableStateFlow(false)
+    val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
+    // Error state
+    private val _errorMessage = MutableStateFlow<String?>(null)
+    val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
+    
+    /**
+     * Fetch popular movies from Supabase (TMDB metadata-rich content)
+     */
+    fun fetchPopularMovies() {
+        viewModelScope.launch {
+            _isLoading.value = true
+            _errorMessage.value = null
+            
+            try {
+                val result = repository.getPopularMovies(page = 1)
+                
+                if (result.isSuccess) {
+                    // Convert CombinedMovie to Movie for UI compatibility
+                    _popularMovies.value = result.getOrNull()?.map { it.tmdbMovie } ?: emptyList()
+                } else {
+                    _errorMessage.value = "Failed to load top rated movies from Supabase"
+                }
+            } catch (e: Exception) {
+                _errorMessage.value = "Error: ${e.message}"
+            } finally {
+                _isLoading.value = false
+        }
+    }
+    
+    /**
+     * Fetch movie details by ID using the new MovieDetails model
+     * @param movieId The ID of the movie to fetch
+     */
+    fun fetchMovieDetails(movieId: Int) {
+        viewModelScope.launch {
+            _isLoading.value = true
+            _errorMessage.value = null
+            
+            try {
+                val response = repository.getDetailsById(movieId)
+                if (response.isSuccessful) {
+                    _movieDetails.value = response.body()
+                } else {
+                    _errorMessage.value = "Failed to fetch movie details: ${response.message()}"
+                }
+            } catch (e: Exception) {
+                _errorMessage.value = "Error: ${e.message}"
+            } finally {
+                _isLoading.value = false
+            }
+        }
+    }
+    
+    /**
+     * Fetch movie genres list
+     */
+    fun fetchGenres() {
+        viewModelScope.launch {
+            _isLoading.value = true
+            _errorMessage.value = null
+            
+            try {
+                val response = repository.getGenres()
+                if (response.isSuccessful) {
+                    _genres.value = response.body()?.genres ?: emptyList()
+                } else {
+                    _errorMessage.value = "Failed to fetch genres: ${response.message()}"
+                }
+            } catch (e: Exception) {
+                _errorMessage.value = "Error: ${e.message}"
+            } finally {
+                _isLoading.value = false
+            }
+        }
+    }
+    
+    /**
+     * Fetch movies by genre
+     * @param genreId The genre ID to filter by
+     * @param page The page number for pagination
+     */
+    fun fetchMoviesByGenre(genreId: Int, page: Int = 1) {
+        viewModelScope.launch {
+            _isLoading.value = true
+            _errorMessage.value = null
+            
+            try {
+                val response = repository.getMoviesByGenre(genreId, page)
+                if (response.isSuccessful) {
+                    _searchResults.value = response.body()?.results ?: emptyList()
+                } else {
+                    _errorMessage.value = "Failed to fetch movies by genre: ${response.message()}"
+                }
+            } catch (e: Exception) {
+                _errorMessage.value = "Error: ${e.message}"
+            } finally {
+                _isLoading.value = false
+            }
+        }
+    }
+    
+    /**
+     * Fetch similar movies for a given movie ID
+     * @param movieId The movie ID to find similar movies for
+     * @param page The page number for pagination
+     */
+    fun fetchSimilarMovies(movieId: Int, page: Int = 1) {
+        viewModelScope.launch {
+            _isLoading.value = true
+            _errorMessage.value = null
+            
+            try {
+                val response = repository.getSimilarMovies(movieId, page)
+                if (response.isSuccessful) {
+                    _searchResults.value = response.body()?.results ?: emptyList()
+                } else {
+                    _errorMessage.value = "Failed to fetch similar movies: ${response.message()}"
+                }
+            } catch (e: Exception) {
+                _errorMessage.value = "Error: ${e.message}"
+            } finally {
+     * @param query The search query
+     */
+    fun searchMovies(query: String) {
+        if (query.isBlank()) {
+            _searchResults.value = emptyList()
+            return
+        }
+        
+        viewModelScope.launch {
+            _isLoading.value = true
+            _errorMessage.value = null
+            
+            try {
+                // Get all enriched movies and filter by title
+                val result = repository.getAllEnrichedMovies()
+                
+                if (result.isSuccess) {
+                    val queryLower = query.lowercase()
+                    val searchResults = result.getOrNull()
+                        ?.filter { movie ->
+                            movie.tmdbMovie.title.lowercase().contains(queryLower) ||
+                            movie.tmdbMovie.originalTitle.lowercase().contains(queryLower)
+                        }
+                        ?.sortedByDescending { it.tmdbMovie.popularity }
+                        ?.take(50)
+                    
+                    _searchResults.value = searchResults?.map { it.tmdbMovie } ?: emptyList()
+                } else {
+                    _errorMessage.value = "Failed to search movies in Supabase"
+                    _searchResults.value = emptyList()
+                }
+            } catch (e: Exception) {
+                _errorMessage.value = "Error: ${e.message}"
+                _searchResults.value = emptyList()
+            } finally {
+                _isLoading.value = false
+            }
+        }
+    }
+    /**
+     * Clear error message
+     */
+    fun clearError() {
+        _errorMessage.value = null
+    }
+}

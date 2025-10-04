@@ -16,6 +16,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -25,7 +26,149 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.movieapp.data.model.CombinedMovie
 import com.movieapp.viewmodel.StreamingViewModel
+import com.movieapp.ui.components.PlayerViewHost
 import com.movieapp.ui.components.VideoPlayerWithLoading
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.common.MediaItem
+import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import android.util.Log
+import androidx.activity.compose.BackHandler
+import android.app.Activity
+import android.content.pm.ActivityInfo
+import android.content.Context
+import android.content.ContextWrapper
+import android.content.res.Configuration
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
+
+/**
+ * Creates an ExoPlayer instance with proper HTTP headers for streaming
+ */
+private fun createEnhancedExoPlayer(context: Context, videoUrl: String): ExoPlayer {
+    val TAG = "MoviePlayerHeaders"
+    Log.e(TAG, "🎬 CREATING ENHANCED EXOPLAYER FOR MOVIEPLAYERSCREEN")
+    Log.e(TAG, "🔍 VIDEO URL: $videoUrl")
+    println("🎬 CREATING ENHANCED EXOPLAYER FOR MOVIEPLAYERSCREEN")
+    println("🔍 VIDEO URL: $videoUrl")
+    
+    // Get headers based on URL
+    val headers = getHeadersForVideoUrl(videoUrl)
+    
+    // Create HTTP data source factory with headers
+    val httpDataSourceFactory = DefaultHttpDataSource.Factory()
+        .setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36")
+        .setConnectTimeoutMs(30000)
+        .setReadTimeoutMs(30000)
+        .setAllowCrossProtocolRedirects(true)
+        .setDefaultRequestProperties(
+            buildMap {
+                // Enhanced default headers
+                put("Accept", "*/*")
+                put("Accept-Language", "en-US,en;q=0.9")
+                put("Accept-Encoding", "gzip, deflate, br")
+                put("Connection", "keep-alive")
+                put("Upgrade-Insecure-Requests", "1")
+                put("Sec-Fetch-Dest", "video")
+                put("Sec-Fetch-Mode", "cors")
+                put("Sec-Fetch-Site", "cross-site")
+                put("Cache-Control", "no-cache")
+                put("Pragma", "no-cache")
+                put("DNT", "1")
+                put("Sec-CH-UA", "\"Google Chrome\";v=\"140\", \"Chromium\";v=\"140\", \"Not?A_Brand\";v=\"24\"")
+                put("Sec-CH-UA-Mobile", "?0")
+                put("Sec-CH-UA-Platform", "\"Windows\"")
+                put("X-Requested-With", "XMLHttpRequest")
+                
+                // Add URL-specific headers
+                putAll(headers)
+            }.also { finalHeaders ->
+                Log.d(TAG, "🔧 Applied ${finalHeaders.size} headers to ExoPlayer:")
+                finalHeaders.forEach { (key, value) ->
+                    Log.d(TAG, "   $key: $value")
+                }
+            }
+        )
+
+    // Create media source factory with the HTTP data source
+    val mediaSourceFactory = DefaultMediaSourceFactory(httpDataSourceFactory)
+
+    // Build ExoPlayer with custom media source factory
+    return ExoPlayer.Builder(context)
+        .setMediaSourceFactory(mediaSourceFactory)
+        .build()
+}
+
+/**
+ * Gets appropriate headers based on the video URL domain
+ */
+private fun getHeadersForVideoUrl(videoUrl: String): Map<String, String> {
+    val TAG = "MoviePlayerHeaders"
+    val url = videoUrl.lowercase()
+    
+    Log.d(TAG, "🔍 Analyzing URL for headers: $videoUrl")
+    
+    return when {
+        url.contains("hakunaymatata") || url.contains("bcdnw") -> mapOf(
+            "Accept-Encoding" to "identity;q=1, *;q=0",
+            "Range" to "bytes=0-",
+            "Referer" to "https://fmoviesunblocked.net/spa/videoPlayPage/movies/",
+            "Sec-CH-UA" to "\"Chromium\";v=\"140\", \"Not=A?Brand\";v=\"24\", \"Google Chrome\";v=\"140\"",
+            "Sec-CH-UA-Mobile" to "?0",
+            "Sec-CH-UA-Platform" to "\"Windows\"",
+            "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+        )
+        url.contains("streamtape") || url.contains("doodstream") -> mapOf(
+            "Referer" to "https://streamtape.com/",
+            "Origin" to "https://streamtape.com"
+        )
+        url.contains("mixdrop") -> mapOf(
+            "Referer" to "https://mixdrop.co/",
+            "Origin" to "https://mixdrop.co"
+        )
+        url.contains("upstream") -> mapOf(
+            "Referer" to "https://upstream.to/",
+            "Origin" to "https://upstream.to"
+        )
+        url.contains("vidoza") -> mapOf(
+            "Referer" to "https://vidoza.net/",
+            "Origin" to "https://vidoza.net"
+        )
+        url.contains("voe") || url.contains("voe-unblock") -> mapOf(
+            "Referer" to "https://voe.sx/",
+            "Origin" to "https://voe.sx"
+        )
+        url.contains("streamwish") -> mapOf(
+            "Referer" to "https://streamwish.to/",
+            "Origin" to "https://streamwish.to"
+        )
+        url.contains("filemoon") -> mapOf(
+            "Referer" to "https://filemoon.sx/",
+            "Origin" to "https://filemoon.sx"
+        )
+        // For unknown sources, try to extract domain
+        else -> {
+            try {
+                val uri = java.net.URI(videoUrl)
+                mapOf(
+                    "Referer" to "${uri.scheme}://${uri.host}/",
+                    "Origin" to "${uri.scheme}://${uri.host}"
+                )
+            } catch (e: Exception) {
+                emptyMap()
+            }
+        }
+    }.also { headers ->
+        if (headers.isNotEmpty()) {
+            Log.d(TAG, "✅ Applied ${headers.size} URL-specific headers:")
+            headers.forEach { (key, value) ->
+                Log.d(TAG, "   $key: $value")
+            }
+        } else {
+            Log.d(TAG, "ℹ️ No specific headers for this URL, using defaults only")
+        }
+    }
+}
 
 /**
  * MoviePlayerScreen - Video player for streaming movies
@@ -91,37 +234,109 @@ private fun MoviePlayerContent(
 ) {
     // State for fullscreen mode
     var isFullscreen by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val activity = remember(context) { context.findActivity() }
+    val configuration = LocalConfiguration.current
+
+    // Single ExoPlayer instance with enhanced headers
+    val exoPlayer = remember(movie.videoUrl) {
+        val url = movie.videoUrl
+        if (url.isNotBlank()) {
+            Log.d("ExoPlayerScreen", "▶️ Starting from beginning")
+            Log.d("ExoPlayerScreen", "✅ Loading stream for ${movie.title}: $url")
+            Log.e("ENHANCED_PLAYER", "🚀 USING ENHANCED EXOPLAYER WITH HEADERS!")
+            createEnhancedExoPlayer(context, url).apply {
+                setMediaItem(MediaItem.fromUri(url))
+                prepare()
+                playWhenReady = true
+            }
+        } else {
+            Log.e("ENHANCED_PLAYER", "❌ No URL provided, using basic ExoPlayer")
+            ExoPlayer.Builder(context).build()
+        }
+    }
+
+    // Update media if URL changes (recreate player with new headers)
+    LaunchedEffect(movie.videoUrl) {
+        val url = movie.videoUrl
+        if (url.isNotBlank() && exoPlayer.mediaItemCount == 0) {
+            // Only set media if player doesn't have any media yet
+            // (avoid duplicate setup since remember() already handles this)
+            Log.d("ExoPlayerScreen", "🔄 URL changed, media will be set by remember() block")
+        }
+    }
+
+    // Handle system back press to exit fullscreen first
+    BackHandler(enabled = isFullscreen) {
+        isFullscreen = false
+    }
+
+    // Toggle system UI and orientation when fullscreen changes
+    LaunchedEffect(isFullscreen) {
+        activity?.let { act ->
+            setFullscreen(act, isFullscreen)
+            act.requestedOrientation = if (isFullscreen) {
+                // Force landscape even if the user has system rotation lock enabled
+                ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+            } else {
+                ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            }
+        }
+    }
+
+    // Auto toggle fullscreen when device orientation changes
+    LaunchedEffect(configuration.orientation) {
+        when (configuration.orientation) {
+            Configuration.ORIENTATION_LANDSCAPE -> if (!isFullscreen) isFullscreen = true
+            Configuration.ORIENTATION_PORTRAIT -> if (isFullscreen) isFullscreen = false
+        }
+    }
+
+    // Ensure cleanup if this composable leaves the composition
+    DisposableEffect(Unit) {
+        onDispose {
+            activity?.let { act ->
+                setFullscreen(act, false)
+                act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            }
+        }
+    }
     
-    if (isFullscreen) {
-        // Fullscreen video player
-        VideoPlayerWithLoading(
-            videoUrl = movie.videoUrl,
-            isLoading = false,
-            onBackClick = { isFullscreen = false }, // Exit fullscreen instead of going back
-            isFullscreen = true,
-            onFullscreenToggle = { fullscreen ->
-                isFullscreen = fullscreen
-            },
-            autoPlay = true,
-            modifier = Modifier.fillMaxSize()
+    // Render player once with dynamic sizing; avoids recreation when toggling fullscreen
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+    ) {
+        val playerModifier = if (isFullscreen) {
+            Modifier
+                .fillMaxWidth()
+                .fillMaxHeight()
+        } else {
+            Modifier
+                .fillMaxWidth()
+                .aspectRatio(16f / 9f)
+        }
+
+        // Player host attaches existing ExoPlayer
+        PlayerViewHost(
+            exoPlayer = exoPlayer,
+            modifier = playerModifier,
+            onBackClick = if (isFullscreen) ({ isFullscreen = false }) else onBackClick,
+            isFullscreen = isFullscreen,
+            onFullscreenToggle = { isFullscreen = it }
         )
-    } else {
-        // Normal layout with video and details
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-        ) {
-            // Video player section
-            VideoPlayerSection(
-                movie = movie,
-                onBackClick = onBackClick,
-                isFullscreen = isFullscreen,
-                onFullscreenToggle = { isFullscreen = it }
-            )
-            
-            // Movie information section
+
+        // Movie info only when not fullscreen
+        if (!isFullscreen) {
             MoviePlayerInfoSection(movie = movie)
+        }
+    }
+
+    // Release player when leaving this screen
+    DisposableEffect(Unit) {
+        onDispose {
+            try { exoPlayer.release() } catch (_: Throwable) {}
         }
     }
 }
@@ -438,5 +653,29 @@ private fun NoStreamContent(
                 }
             }
         }
+    }
+}
+
+/**
+ * Helper function to find Activity from Context
+ */
+private fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
+}
+
+/**
+ * Helper function to set fullscreen mode
+ */
+private fun setFullscreen(activity: Activity, fullscreen: Boolean) {
+    val window = activity.window
+    val insetsController = WindowInsetsControllerCompat(window, window.decorView)
+    
+    if (fullscreen) {
+        insetsController.hide(WindowInsetsCompat.Type.systemBars())
+        insetsController.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+    } else {
+        insetsController.show(WindowInsetsCompat.Type.systemBars())
     }
 }

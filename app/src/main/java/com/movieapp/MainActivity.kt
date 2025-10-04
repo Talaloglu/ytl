@@ -4,7 +4,6 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.activity.viewModels
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
@@ -16,18 +15,13 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.navigation.compose.rememberNavController
 import com.movieapp.ui.theme.MovieAppTheme
 import com.movieapp.ui.navigation.MovieAppNavigation
-import com.movieapp.viewmodel.MainViewModel
 
 /**
  * Main Activity for the Movie App
  * Sets up Jetpack Compose UI and navigation with Scaffold structure
- * Creates ViewModel instance as specified for UI connectivity
  * Uses consistent layout structure with theming as specified
  */
 class MainActivity : ComponentActivity() {
-    
-    // Create an instance of the ViewModel as specified
-    private val mainViewModel: MainViewModel by viewModels()
     
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)

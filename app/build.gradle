@@ -129,12 +129,18 @@ dependencies {
     implementation 'androidx.room:room-ktx:2.6.1'
     kapt 'androidx.room:room-compiler:2.6.1'
 
+    // DataStore for preferences
+    implementation 'androidx.datastore:datastore-preferences:1.0.0'
+
     // Supabase for database integration
     implementation 'io.github.jan-tennert.supabase:postgrest-kt:2.0.4'
     implementation 'io.github.jan-tennert.supabase:realtime-kt:2.0.4'
     implementation 'io.ktor:ktor-client-android:2.3.5'
     implementation 'io.ktor:ktor-client-core:2.3.5'
     implementation 'io.ktor:ktor-utils:2.3.5'
+
+    // LeakCanary for memory leak detection (Debug only)
+    debugImplementation 'com.squareup.leakcanary:leakcanary-android:2.12'
 
     // Testing dependencies
     testImplementation 'junit:junit:4.13.2'

@@ -28,6 +28,8 @@ object DatabaseProvider {
     fun database(): AppDatabase {
         return checkNotNull(db) { "DatabaseProvider not initialized. Call DatabaseProvider.init(context) first." }
     }
+    
+    fun getDatabase(): AppDatabase = database()
 
     fun cachedMovieDao(): CachedMovieDao = database().cachedMovieDao()
 }
